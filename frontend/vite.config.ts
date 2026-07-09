@@ -8,4 +8,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    allowedHosts: true,
+    host: true, // Listens on all local IP addresses (192.168... and 127.0.0.1)
+  }
 })
