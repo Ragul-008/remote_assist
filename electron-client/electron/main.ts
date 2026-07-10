@@ -21,6 +21,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false, // CRITICAL: Prevent WebRTC/WebSocket throttling when window is hidden
     },
   })
 
@@ -86,7 +87,8 @@ if (!gotTheLock) {
 
     // Handle initial deep link and custom filename on Windows
     if (process.platform === 'win32') {
-      setTimeout(() => {
+      // Instead of an arbitrary timeout, wait for React to tell us it's ready
+      ipcMain.on('react-ready', () => {
         handleDeepLink(process.argv)
         
         // Custom filename parsing for dynamic downloads (Zip extraction folder or Portable EXE)
@@ -94,26 +96,27 @@ if (!gotTheLock) {
         const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
         if (match && win) {
           const sessionId = match[1];
-          // Present native prompt
-          const response = dialog.showMessageBoxSync(win, {
-            type: 'question',
-            buttons: ['Yes, Allow', 'No, Cancel'],
-            title: 'RemoteAssist Request',
-            message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
-            defaultId: 0,
-            cancelId: 1
-          });
+          
+          // Small delay so UI doesn't visually flash before hiding
+          setTimeout(() => {
+            const response = dialog.showMessageBoxSync(win!, {
+              type: 'question',
+              buttons: ['Yes, Allow', 'No, Cancel'],
+              title: 'RemoteAssist Request',
+              message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
+              defaultId: 0,
+              cancelId: 1
+            });
 
-          if (response === 0) {
-            // Yes, Allow
-            win.hide(); // Hide the frontend UI completely
-            win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
-          } else {
-            // No, Cancel
-            app.quit();
-          }
+            if (response === 0) {
+              win!.hide(); // Hide completely
+              win!.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
+            } else {
+              app.quit();
+            }
+          }, 100);
         }
-      }, 1500) // Delay to ensure React is loaded
+      });
     }
 
   // Check for updates

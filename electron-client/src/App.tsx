@@ -25,6 +25,7 @@ const ElectronDeepLinkHandler = () => {
 
     if ((window as any).ipcRenderer) {
       (window as any).ipcRenderer.on('handle-deep-link', handleDeepLink);
+      (window as any).ipcRenderer.send('react-ready');
       return () => {
         (window as any).ipcRenderer.off('handle-deep-link', handleDeepLink);
       };
