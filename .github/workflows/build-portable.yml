@@ -30,6 +30,7 @@ jobs:
         run: npm run build:exe
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_URL: https://remote-assist-y8ot.onrender.com/api
 
       - name: Rename EXE for consistency
         working-directory: electron-client

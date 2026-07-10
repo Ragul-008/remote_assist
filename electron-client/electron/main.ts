@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog } from 'electron'
 import path from 'node:path'
 import { autoUpdater } from 'electron-updater'
 
@@ -18,7 +18,7 @@ function createWindow() {
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -84,10 +84,35 @@ if (!gotTheLock) {
     app.setAsDefaultProtocolClient('remoteassist')
     createWindow()
 
-    // Handle initial deep link on Windows
+    // Handle initial deep link and custom filename on Windows
     if (process.platform === 'win32') {
       setTimeout(() => {
         handleDeepLink(process.argv)
+        
+        // Custom filename parsing for dynamic downloads (Zip extraction folder or Portable EXE)
+        const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+        const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
+        if (match && win) {
+          const sessionId = match[1];
+          // Present native prompt
+          const response = dialog.showMessageBoxSync(win, {
+            type: 'question',
+            buttons: ['Yes, Allow', 'No, Cancel'],
+            title: 'RemoteAssist Request',
+            message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
+            defaultId: 0,
+            cancelId: 1
+          });
+
+          if (response === 0) {
+            // Yes, Allow
+            win.hide(); // Hide the frontend UI completely
+            win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
+          } else {
+            // No, Cancel
+            app.quit();
+          }
+        }
       }, 1500) // Delay to ensure React is loaded
     }
 

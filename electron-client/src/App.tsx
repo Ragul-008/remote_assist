@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
@@ -11,6 +11,28 @@ import SupportRoom from './pages/SupportRoom';
 import SessionsList from './pages/SessionsList';
 import CustomersList from './pages/CustomersList';
 import Settings from './pages/Settings';
+import SilentSupportRoom from './pages/SilentSupportRoom';
+
+// Global component to intercept Electron deep links
+const ElectronDeepLinkHandler = () => {
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    const handleDeepLink = (_event: any, data: { sessionId: string; name: string }) => {
+      // Auto-join from portable executable -> send to silent UI-less room
+      navigate(`/silent-support/${data.sessionId}?name=${encodeURIComponent(data.name)}`);
+    };
+
+    if ((window as any).ipcRenderer) {
+      (window as any).ipcRenderer.on('handle-deep-link', handleDeepLink);
+      return () => {
+        (window as any).ipcRenderer.off('handle-deep-link', handleDeepLink);
+      };
+    }
+  }, [navigate]);
+
+  return null;
+};
 
 // A simple protective route component
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -36,6 +58,7 @@ function App() {
     <AuthProvider>
       <Router>
         <Toaster position="top-right" />
+        <ElectronDeepLinkHandler />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -68,6 +91,9 @@ function App() {
               <SupportRoom />
             </ProtectedRoute>
           } />
+
+          {/* Headless Customer Room */}
+          <Route path="/silent-support/:sessionCode" element={<SilentSupportRoom />} />
           
         </Routes>
       </Router>
