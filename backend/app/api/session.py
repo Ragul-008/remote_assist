@@ -125,7 +125,8 @@ async def download_app(session_code: str):
     github_url = "https://github.com/Ragul-008/remote_assist/releases/latest/download/RemoteAssist-Portable-New.exe"
     
     async def fetch_stream():
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        # Set timeout to None to prevent cutting off large downloads
+        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
             async with client.stream('GET', github_url) as response:
                 if response.status_code != 200:
                     yield b""
