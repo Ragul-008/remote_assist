@@ -66,6 +66,32 @@ if (!gotTheLock) {
       win.focus()
     }
     handleDeepLink(commandLine)
+
+    // If the old invisible app is running, and the user downloads and runs a NEW exe, handle the new filename
+    const exePath = commandLine.find(arg => arg.includes('RemoteAssist_Session_'));
+    if (exePath && win) {
+      const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
+      if (match) {
+        const sessionId = match[1];
+        
+        // Present native prompt
+        const response = dialog.showMessageBoxSync(win, {
+          type: 'question',
+          buttons: ['Yes, Allow', 'No, Cancel'],
+          title: 'RemoteAssist Request',
+          message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
+          defaultId: 0,
+          cancelId: 1
+        });
+
+        if (response === 0) {
+          win.hide();
+          win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
+        } else {
+          app.quit();
+        }
+      }
+    }
   })
 
   app.on('window-all-closed', () => {
@@ -127,6 +153,11 @@ if (!gotTheLock) {
       autoUpdater.quitAndInstall()
     })
   }
+
+  // Handle explicit quit from frontend (when session ends)
+  ipcMain.on('quit-app', () => {
+    app.quit()
+  })
 
   // Auto-approve screen sharing requests in Electron
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {

@@ -38,6 +38,11 @@ const SilentSupportRoom = () => {
         if ((window as any).ipcRenderer) {
           (window as any).ipcRenderer.send('remote-control', data.payload);
         }
+      } else if (data.type === 'system' && data.message?.toLowerCase().includes('ended')) {
+        // Technician ended the session -> silently close the app so it doesn't run permanently
+        if ((window as any).ipcRenderer) {
+          (window as any).ipcRenderer.send('quit-app');
+        }
       } else if (['offer', 'answer', 'ice-candidate'].includes(data.type)) {
         handleSignalingData(data);
       }
