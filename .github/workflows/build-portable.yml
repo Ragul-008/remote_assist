@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -30,7 +33,7 @@ jobs:
 
       - name: Rename EXE for consistency
         working-directory: electron-client
-        run: Rename-Item "release-new\RemoteAssist 1.0.0.exe" "RemoteAssist-Portable-New.exe"
+        run: Get-ChildItem -Path "release-new\*.exe" | Rename-Item -NewName "RemoteAssist-Portable-New.exe"
 
       - name: Release
         uses: softprops/action-gh-release@v2
