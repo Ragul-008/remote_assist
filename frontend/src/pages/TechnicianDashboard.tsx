@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Play, Copy, Check, Users, Clock, Monitor, Plus, Loader2 } from 'lucide-react';
+import { Play, Copy, Check, Users, Clock, Monitor, Plus, Loader2, Link } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,6 +12,7 @@ const TechnicianDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -47,6 +48,14 @@ const TechnicianDashboard = () => {
     setCopiedCode(code);
     setTimeout(() => setCopiedCode(null), 2000);
     toast.success('Session code copied to clipboard');
+  };
+
+  const handleCopyLink = (code: string) => {
+    const url = `${window.location.origin}/join/${code}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(code);
+    setTimeout(() => setCopiedLink(null), 2000);
+    toast.success('Join link copied to clipboard');
   };
 
   const joinSession = (code: string) => {
@@ -149,6 +158,13 @@ const TechnicianDashboard = () => {
                           title="Copy Code"
                         >
                           {copiedCode === session.session_code ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                        <button 
+                          onClick={() => handleCopyLink(session.session_code)}
+                          className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors ml-2"
+                          title="Copy Join Link"
+                        >
+                          {copiedLink === session.session_code ? <Check className="w-4 h-4 text-green-500" /> : <Link className="w-4 h-4" />}
                         </button>
                       </div>
                     </td>

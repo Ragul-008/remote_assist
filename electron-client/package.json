@@ -1,17 +1,46 @@
 {
   "name": "electron-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "author": "Ragul",
+  "description": "RemoteAssist Application",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
+    "build:exe": "npm run build && electron-builder",
+    "publish:exe": "npm run build && electron-builder -p always",
     "lint": "oxlint",
     "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.remoteassist.app",
+    "productName": "RemoteAssist",
+    "protocols": {
+      "name": "RemoteAssist Protocol",
+      "schemes": [
+        "remoteassist"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Ragul-008",
+      "repo": "remote_assist"
+    },
+    "directories": {
+      "output": "release-new"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
   },
   "dependencies": {
     "@nut-tree-fork/nut-js": "^4.2.6",
     "axios": "^1.18.1",
+    "electron-updater": "^6.8.9",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.23.0",
     "react": "^19.2.7",
@@ -27,6 +56,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
     "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
     "oxlint": "^1.71.0",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",

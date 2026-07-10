@@ -12,23 +12,44 @@ const CustomerDashboard = () => {
   const [isJoining, setIsJoining] = useState(false);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const handleDeepLink = (_event: any, data: { sessionId: string }) => {
+      setSessionCode(data.sessionId);
+      joinSessionDirectly(data.sessionId);
+    };
+
+    if (window.ipcRenderer) {
+      window.ipcRenderer.on('handle-deep-link', handleDeepLink);
+    }
+    
+    return () => {
+      if (window.ipcRenderer) {
+        window.ipcRenderer.off('handle-deep-link', handleDeepLink);
+      }
+    };
+  }, []);
+
+  const joinSessionDirectly = async (code: string) => {
+    if (!code || code.length !== 9) return;
+    setIsJoining(true);
+    try {
+      await api.post(`/sessions/join/${code}`);
+      toast.success('Joined session successfully');
+      navigate(`/room/${code}`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to join session. Please check the code.');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const handleJoinSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sessionCode.trim() || sessionCode.length !== 9) {
       toast.error('Please enter a valid 9-digit session code');
       return;
     }
-
-    setIsJoining(true);
-    try {
-      await api.post(`/sessions/join/${sessionCode}`);
-      toast.success('Joined session successfully');
-      navigate(`/room/${sessionCode}`);
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to join session. Please check the code.');
-    } finally {
-      setIsJoining(false);
-    }
+    await joinSessionDirectly(sessionCode);
   };
 
   return (

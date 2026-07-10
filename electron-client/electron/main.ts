@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session } from 'electron'
 import path from 'node:path'
+import { autoUpdater } from 'electron-updater'
 
 // Bypass Vite bundler for native module
 const nutjs = require(String('@nut-tree-fork/nut-js'))
@@ -31,18 +32,73 @@ function createWindow() {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
     win.loadFile(path.join(process.env.DIST, 'index.html'))
+    win.webContents.openDevTools() // Open DevTools to debug white screen
   }
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
+function handleDeepLink(argv: string[]) {
+  const url = argv.find(arg => arg.startsWith('remoteassist://'));
+  if (url && win) {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.hostname === 'join') {
+        const sessionId = parsedUrl.searchParams.get('sessionId');
+        const name = parsedUrl.searchParams.get('name');
+        if (sessionId && name) {
+          win.webContents.send('handle-deep-link', { sessionId, name });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse deep link', e);
+    }
   }
-})
+}
 
-app.whenReady().then(() => {
-  createWindow()
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+    handleDeepLink(commandLine)
+  })
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit()
+      win = null
+    }
+  })
+
+  // macOS specific deep linking
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink([url]);
+  })
+
+  app.whenReady().then(() => {
+    app.setAsDefaultProtocolClient('remoteassist')
+    createWindow()
+
+    // Handle initial deep link on Windows
+    if (process.platform === 'win32') {
+      setTimeout(() => {
+        handleDeepLink(process.argv)
+      }, 1500) // Delay to ensure React is loaded
+    }
+
+  // Check for updates
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify()
+
+    autoUpdater.on('update-downloaded', () => {
+      autoUpdater.quitAndInstall()
+    })
+  }
 
   // Auto-approve screen sharing requests in Electron
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
@@ -105,3 +161,4 @@ app.whenReady().then(() => {
     }
   })
 })
+}

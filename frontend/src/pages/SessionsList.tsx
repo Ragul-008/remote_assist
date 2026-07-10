@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Clock, Monitor, Play, Check, Copy, Loader2, Calendar } from 'lucide-react';
+import { Clock, Monitor, Play, Check, Copy, Loader2, Calendar, Link } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const SessionsList = () => {
@@ -10,6 +10,7 @@ const SessionsList = () => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -32,6 +33,14 @@ const SessionsList = () => {
     setCopiedCode(code);
     setTimeout(() => setCopiedCode(null), 2000);
     toast.success('Code copied to clipboard');
+  };
+
+  const handleCopyLink = (code: string) => {
+    const url = `${window.location.origin}/join/${code}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(code);
+    setTimeout(() => setCopiedLink(null), 2000);
+    toast.success('Join link copied to clipboard');
   };
 
   const joinSession = (code: string) => {
@@ -85,8 +94,16 @@ const SessionsList = () => {
                         <button 
                           onClick={() => handleCopy(session.session_code)}
                           className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+                          title="Copy Code"
                         >
                           {copiedCode === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                        <button 
+                          onClick={() => handleCopyLink(session.session_code)}
+                          className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+                          title="Copy Join Link"
+                        >
+                          {copiedLink === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Link className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </td>

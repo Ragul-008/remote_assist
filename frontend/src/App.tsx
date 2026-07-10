@@ -11,6 +11,7 @@ import SupportRoom from './pages/SupportRoom';
 import SessionsList from './pages/SessionsList';
 import CustomersList from './pages/CustomersList';
 import Settings from './pages/Settings';
+import JoinSession from './pages/JoinSession';
 
 // A simple protective route component
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -39,6 +40,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/join/:sessionId" element={<JoinSession />} />
           
           {/* Dashboard Routes */}
           <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
