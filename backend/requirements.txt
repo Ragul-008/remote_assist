@@ -10,3 +10,4 @@ python-multipart
 emails
 python-dotenv
 email-validator
+httpx
