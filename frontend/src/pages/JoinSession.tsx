@@ -14,16 +14,20 @@ const JoinSession = () => {
 
     setIsJoining(true);
 
-    // Deep link to open the Electron app
-    // Format: remoteassist://join?sessionId=123456789&name=John
-    const deepLink = `remoteassist://join?sessionId=${sessionId}&name=${encodeURIComponent(name)}`;
+    // Hit the backend API to dynamically download the custom named .exe
+    const downloadUrl = `https://remote-assist-y8ot.onrender.com/api/sessions/${sessionId}/download`;
     
-    // Attempt to open the app
-    window.location.href = deepLink;
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `RemoteAssist_Session_${sessionId}.exe`; // Fallback hint
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 
-    // Reset button state after a short delay
+    // Wait a little bit then reset and show instruction
     setTimeout(() => {
       setIsJoining(false);
+      alert("Downloading your custom support app!\n\nWhen it finishes downloading, simply open the file and it will connect instantly.");
     }, 2000);
   };
 
