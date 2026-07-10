@@ -1,0 +1,43 @@
+name: Build and Release Electron Portable EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        working-directory: electron-client
+        run: npm install
+
+      - name: Build EXE (Portable)
+        working-directory: electron-client
+        run: npm run build:exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rename EXE for consistency
+        working-directory: electron-client
+        run: Rename-Item "release-new\RemoteAssist 1.0.0.exe" "RemoteAssist-Portable-New.exe"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: electron-client/release-new/RemoteAssist-Portable-New.exe
+          name: Latest Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

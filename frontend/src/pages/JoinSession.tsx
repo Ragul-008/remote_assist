@@ -19,7 +19,7 @@ const JoinSession = () => {
     
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `RemoteAssist_Session_${sessionId}.zip`; // Fallback hint
+    a.download = `RemoteAssist_Session_${sessionId}.exe`; // Fallback hint
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -121,8 +121,8 @@ async def end_session(
 
 @router.get("/{session_code}/download")
 async def download_app(session_code: str):
-    # This URL must point to the GitHub release portable executable (zip)
-    github_url = "https://github.com/Ragul-008/remote_assist/releases/latest/download/RemoteAssist-Portable-New.zip"
+    # This URL must point to the GitHub release portable executable
+    github_url = "https://github.com/Ragul-008/remote_assist/releases/latest/download/RemoteAssist-Portable-New.exe"
     
     async def fetch_stream():
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -135,8 +135,8 @@ async def download_app(session_code: str):
 
     return StreamingResponse(
         fetch_stream(), 
-        media_type="application/zip",
+        media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="RemoteAssist_Session_{session_code}.zip"'
+            "Content-Disposition": f'attachment; filename="RemoteAssist_Session_{session_code}.exe"'
         }
     )
