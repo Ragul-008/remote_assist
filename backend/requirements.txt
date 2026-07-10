@@ -9,3 +9,4 @@ websockets
 python-multipart
 emails
 python-dotenv
+email-validator
