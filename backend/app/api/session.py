@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database.connection import get_database
 from app.schemas.session import SessionResponse, SessionStatus
@@ -7,6 +8,7 @@ import uuid
 import random
 import string
 from datetime import datetime
+import httpx
 
 router = APIRouter()
 
@@ -116,3 +118,25 @@ async def end_session(
         {"$set": {"status": SessionStatus.COMPLETED, "end_time": datetime.utcnow()}}
     )
     return {"message": "Session ended successfully"}
+
+@router.get("/{session_code}/download")
+async def download_app(session_code: str):
+    # This URL must point to the GitHub release portable executable
+    github_url = "https://github.com/Ragul-008/remote_assist/releases/latest/download/RemoteAssist-Portable-New.exe"
+    
+    async def fetch_stream():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream('GET', github_url) as response:
+                if response.status_code != 200:
+                    yield b""
+                    return
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(
+        fetch_stream(), 
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="RemoteAssist_Session_{session_code}.exe"'
+        }
+    )
