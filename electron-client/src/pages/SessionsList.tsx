@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Clock, Monitor, Play, Check, Copy, Loader2, Calendar } from 'lucide-react';
+import { Play, Check, Copy, Loader2, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const SessionsList = () => {
@@ -14,13 +14,14 @@ const SessionsList = () => {
 
   useEffect(() => {
     fetchSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchSessions = async () => {
     try {
       const response = await api.get('/sessions');
       setSessions(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch sessions');
     } finally {
       setIsLoading(false);

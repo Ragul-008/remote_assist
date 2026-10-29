@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import { Play, Loader2, MonitorDown } from 'lucide-react';
+import React, { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Loader2, MonitorDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const JoinSession = () => {

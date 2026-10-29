@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -16,13 +16,14 @@ const TechnicianDashboard = () => {
 
   useEffect(() => {
     fetchSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchSessions = async () => {
     try {
       const response = await api.get('/sessions');
       setSessions(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch sessions');
     } finally {
       setIsLoading(false);
@@ -35,7 +36,7 @@ const TechnicianDashboard = () => {
       const response = await api.post('/sessions');
       setSessions([response.data, ...sessions]);
       toast.success('Session created successfully');
-    } catch (error) {
+    } catch {
       toast.error('Failed to create session');
     } finally {
       setIsCreating(false);

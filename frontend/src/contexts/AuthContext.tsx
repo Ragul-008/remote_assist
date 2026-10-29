@@ -1,7 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
 
 interface User {
   id: string;
@@ -20,7 +18,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +30,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (token && storedUser) {
         try {
           setUser(JSON.parse(storedUser));
-        } catch (error) {
+        } catch {
           console.error("Failed to restore user session");
           localStorage.removeItem('token');
           localStorage.removeItem('user');

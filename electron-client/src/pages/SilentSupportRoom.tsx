@@ -1,10 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 
 const SilentSupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
-  const [searchParams] = useSearchParams();
-  const name = searchParams.get('name') || 'Customer';
   
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -30,6 +28,9 @@ const SilentSupportRoom = () => {
     socket.onopen = () => {
       // Start sharing screen silently immediately upon connection
       startScreenShare();
+      if ((window as any).ipcRenderer) {
+        (window as any).ipcRenderer.send('session-active', true);
+      }
     };
 
     socket.onmessage = async (event) => {
@@ -50,9 +51,13 @@ const SilentSupportRoom = () => {
 
     return () => {
       stopScreenShare();
+      if ((window as any).ipcRenderer) {
+        (window as any).ipcRenderer.send('session-active', false);
+      }
       if (peerConnectionRef.current) peerConnectionRef.current.close();
       socket.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionCode]);
 
   const createPeerConnection = () => {
@@ -102,7 +107,7 @@ const SilentSupportRoom = () => {
   const startScreenShare = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: { cursor: "always" },
+        video: { cursor: "always" } as any,
         audio: false 
       });
       

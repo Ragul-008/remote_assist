@@ -1,4 +1,4 @@
-import React from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -17,7 +17,7 @@ import SilentSupportRoom from './pages/SilentSupportRoom';
 const ElectronDeepLinkHandler = () => {
   const navigate = useNavigate();
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleDeepLink = (_event: any, data: { sessionId: string; name: string }) => {
       // Auto-join from portable executable -> send to silent UI-less room
       navigate(`/silent-support/${data.sessionId}?name=${encodeURIComponent(data.name)}`);
@@ -36,7 +36,7 @@ const ElectronDeepLinkHandler = () => {
 };
 
 // A simple protective route component
-const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+const ProtectedRoute = ({ children, allowedRoles }: { children: ReactNode, allowedRoles?: string[] }) => {
   const { user, loading } = useAuth();
   
   if (loading) {

@@ -33,7 +33,8 @@
     "win": {
       "target": [
         "portable"
-      ]
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
     }
   },
   "dependencies": {

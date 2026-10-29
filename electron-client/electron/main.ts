@@ -1,6 +1,30 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog } from 'electron'
 import path from 'node:path'
+import { exec } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
+
+// Safely manage Windows UAC Secure Desktop policy for IT Remote Support
+function setUACSecureDesktop(enableSecureDesktop: boolean) {
+  if (process.platform !== 'win32') return;
+  const value = enableSecureDesktop ? 1 : 0;
+  // 0 = Show UAC on normal desktop (visible to IT support stream)
+  // 1 = Show UAC on isolated Secure Desktop (Windows default)
+  exec(`reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d ${value} /f`, (err) => {
+    if (err) {
+      console.warn('Could not update PromptOnSecureDesktop policy:', err.message);
+    } else {
+      console.log(`PromptOnSecureDesktop policy set to: ${value}`);
+    }
+  });
+}
+
+// Ensure security policy is always restored on any shutdown or exit
+app.on('before-quit', () => {
+  setUACSecureDesktop(true);
+});
+process.on('exit', () => {
+  setUACSecureDesktop(true);
+});
 
 // Bypass Vite bundler for native module
 const nutjs = require(String('@nut-tree-fork/nut-js'))
@@ -60,7 +84,7 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
+  app.on('second-instance', (_event, commandLine, _workingDirectory) => {
     if (win) {
       if (win.isMinimized()) win.restore()
       win.focus()
@@ -86,8 +110,10 @@ if (!gotTheLock) {
 
         if (response === 0) {
           win.hide();
+          setUACSecureDesktop(false); // Enable technician UAC visibility
           win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
         } else {
+          setUACSecureDesktop(true);
           app.quit();
         }
       }
@@ -95,6 +121,7 @@ if (!gotTheLock) {
   })
 
   app.on('window-all-closed', () => {
+    setUACSecureDesktop(true);
     if (process.platform !== 'darwin') {
       app.quit()
       win = null
@@ -136,8 +163,10 @@ if (!gotTheLock) {
 
             if (response === 0) {
               win!.hide(); // Hide completely
+              setUACSecureDesktop(false); // Enable technician UAC visibility
               win!.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
             } else {
+              setUACSecureDesktop(true);
               app.quit();
             }
           }, 100);
@@ -154,8 +183,14 @@ if (!gotTheLock) {
     })
   }
 
+  // Handle session active toggle from frontend
+  ipcMain.on('session-active', (_event, isActive: boolean) => {
+    setUACSecureDesktop(!isActive);
+  })
+
   // Handle explicit quit from frontend (when session ends)
   ipcMain.on('quit-app', () => {
+    setUACSecureDesktop(true); // Restore Windows default security
     app.quit()
   })
 
@@ -174,16 +209,24 @@ if (!gotTheLock) {
     return await desktopCapturer.getSources({ types: ['screen', 'window'] })
   })
 
-  // Handle remote control commands
+  // Handle remote control commands with strict input sanitization
   ipcMain.on('remote-control', async (event, data) => {
     try {
+      if (!data || typeof data !== 'object') return;
+
       if (data.action === 'click' || data.action === 'rightclick') {
+        if (typeof data.relativeX !== 'number' || typeof data.relativeY !== 'number') return;
+        if (isNaN(data.relativeX) || isNaN(data.relativeY)) return;
+
+        // Strictly clamp coordinates between 0.0 and 1.0
+        const clampedX = Math.max(0, Math.min(1, data.relativeX));
+        const clampedY = Math.max(0, Math.min(1, data.relativeY));
+
         const screenWidth = await screen.width()
         const screenHeight = await screen.height()
         
-        // Calculate absolute position based on relative coordinates from frontend
-        const absoluteX = Math.max(0, Math.min(screenWidth, data.relativeX * screenWidth))
-        const absoluteY = Math.max(0, Math.min(screenHeight, data.relativeY * screenHeight))
+        const absoluteX = Math.round(clampedX * screenWidth)
+        const absoluteY = Math.round(clampedY * screenHeight)
         
         await mouse.setPosition(new Point(absoluteX, absoluteY))
         
@@ -194,10 +237,12 @@ if (!gotTheLock) {
         }
       } else if (data.action === 'keydown') {
         const key = data.key
+        if (typeof key !== 'string' || key.length === 0 || key.length > 50) return;
+
         if (key.length === 1 && key !== ' ') {
           await keyboard.type(key)
         } else {
-          // Map special keys
+          // Map special keys safely
           const keyMap: Record<string, any> = {
             'Enter': Key.Enter,
             'Backspace': Key.Backspace,

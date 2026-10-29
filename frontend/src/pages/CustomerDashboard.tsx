@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -12,7 +12,7 @@ const CustomerDashboard = () => {
   const [isJoining, setIsJoining] = useState(false);
   const navigate = useNavigate();
 
-  const handleJoinSession = async (e: React.FormEvent) => {
+  const handleJoinSession = async (e: FormEvent) => {
     e.preventDefault();
     if (!sessionCode.trim() || sessionCode.length !== 9) {
       toast.error('Please enter a valid 9-digit session code');

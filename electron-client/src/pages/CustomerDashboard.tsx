@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -18,15 +18,17 @@ const CustomerDashboard = () => {
       joinSessionDirectly(data.sessionId);
     };
 
-    if (window.ipcRenderer) {
-      window.ipcRenderer.on('handle-deep-link', handleDeepLink);
+    const ipc = (window as any).ipcRenderer;
+    if (ipc) {
+      ipc.on('handle-deep-link', handleDeepLink);
     }
     
     return () => {
-      if (window.ipcRenderer) {
-        window.ipcRenderer.off('handle-deep-link', handleDeepLink);
+      if (ipc) {
+        ipc.off('handle-deep-link', handleDeepLink);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const joinSessionDirectly = async (code: string) => {
@@ -43,7 +45,7 @@ const CustomerDashboard = () => {
     }
   };
 
-  const handleJoinSession = async (e: React.FormEvent) => {
+  const handleJoinSession = async (e: FormEvent) => {
     e.preventDefault();
     if (!sessionCode.trim() || sessionCode.length !== 9) {
       toast.error('Please enter a valid 9-digit session code');

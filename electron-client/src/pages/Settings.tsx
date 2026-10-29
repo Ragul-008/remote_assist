@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -13,6 +13,7 @@ const Settings = () => {
 
   useEffect(() => {
     fetchProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchProfile = async () => {
@@ -20,7 +21,7 @@ const Settings = () => {
       const response = await api.get('/users/me');
       setName(response.data.name);
       // Update local context if needed
-    } catch (error) {
+    } catch {
       toast.error('Failed to load profile details');
     } finally {
       setIsFetching(false);
@@ -43,7 +44,7 @@ const Settings = () => {
           login(token, { ...user, name: response.data.name });
         }
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to update profile');
     } finally {
       setIsLoading(false);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { Users, Loader2, Mail, Hash } from 'lucide-react';
@@ -9,13 +9,14 @@ const CustomersList = () => {
 
   useEffect(() => {
     fetchCustomers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchCustomers = async () => {
     try {
       const response = await api.get('/sessions/customers');
       setCustomers(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch customers list');
     } finally {
       setIsLoading(false);

@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { 
-  Monitor, Video, VideoOff, MessageSquare, Send, X, PhoneOff, 
-  Settings, Loader2, MousePointer2 
+  Monitor, Video, VideoOff, MessageSquare, Send, PhoneOff, 
+  Loader2 
 } from 'lucide-react';
 
 const SupportRoom = () => {
@@ -13,7 +13,7 @@ const SupportRoom = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [_ws, setWs] = useState<WebSocket | null>(null);
   const [messages, setMessages] = useState<{sender: string, text: string}[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -36,18 +36,20 @@ const SupportRoom = () => {
   };
 
   useEffect(() => {
-    // Setup WebSocket
+    // Setup WebSocket with authentication
     const wsUrl = import.meta.env.VITE_API_URL 
       ? import.meta.env.VITE_API_URL.replace('http', 'ws').replace('/api', '') 
       : 'ws://localhost:8000';
       
-    const socket = new WebSocket(`${wsUrl}/ws/${sessionCode}?role=${user?.role}`);
+    const token = localStorage.getItem('token');
+    const authQuery = token ? `&token=${encodeURIComponent(token)}` : '';
+    const socket = new WebSocket(`${wsUrl}/ws/${sessionCode}?role=${user?.role}${authQuery}`);
     wsRef.current = socket;
     
     socket.onopen = () => {
       if (wsRef.current !== socket) return;
       setIsConnected(true);
-      toast.success('Connected to support room');
+      toast.success('Secure connection established');
     };
 
     socket.onmessage = async (event) => {
@@ -64,10 +66,16 @@ const SupportRoom = () => {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (wsRef.current !== socket) return;
       setIsConnected(false);
-      toast.error('Disconnected from server');
+      if (event.code === 4001 || event.code === 4003) {
+        toast.error(`Access Denied: ${event.reason || 'Unauthorized'}`);
+      } else if (event.code === 4004) {
+        toast.error('Session not found');
+      } else {
+        toast.error('Disconnected from server');
+      }
     };
 
     setWs(socket);
@@ -79,6 +87,7 @@ const SupportRoom = () => {
       }
       socket.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionCode]);
 
   const scrollToBottom = () => {
@@ -108,17 +117,6 @@ const SupportRoom = () => {
     
     peerConnectionRef.current = pc;
     return pc;
-  };
-
-  const initiatePeerConnection = async () => {
-    const pc = createPeerConnection();
-    try {
-      const offer = await pc.createOffer({ offerToReceiveVideo: true });
-      await pc.setLocalDescription(offer);
-      wsRef.current?.send(JSON.stringify({ type: 'offer', payload: offer }));
-    } catch (err) {
-      console.error("Error creating offer:", err);
-    }
   };
 
   const handleSignalingData = async (data: any) => {
@@ -160,7 +158,7 @@ const SupportRoom = () => {
   const startScreenShare = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: { cursor: "always" },
+        video: { cursor: "always" } as any,
         audio: false 
       });
       
@@ -228,7 +226,7 @@ const SupportRoom = () => {
       }
       toast.success('Session ended');
       navigate(user?.role === 'technician' ? '/technician' : '/customer');
-    } catch (error) {
+    } catch {
       toast.error('Failed to end session properly');
       navigate(user?.role === 'technician' ? '/technician' : '/customer');
     }
