@@ -24,8 +24,12 @@ const TechnicianDashboard = () => {
     try {
       const response = await api.get('/sessions');
       setSessions(response.data);
-    } catch {
-      toast.error('Failed to fetch sessions');
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        toast.error('Session expired. Please log in again.');
+      } else {
+        toast.error(err.response?.data?.detail || 'Failed to fetch sessions');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -37,8 +41,12 @@ const TechnicianDashboard = () => {
       const response = await api.post('/sessions');
       setSessions([response.data, ...sessions]);
       toast.success('Session created successfully');
-    } catch {
-      toast.error('Failed to create session');
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        toast.error('Login expired. Please log out and log in again.');
+      } else {
+        toast.error(err.response?.data?.detail || 'Server is waking up. Please try again in a few seconds.');
+      }
     } finally {
       setIsCreating(false);
     }
