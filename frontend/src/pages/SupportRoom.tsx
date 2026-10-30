@@ -37,9 +37,15 @@ const SupportRoom = () => {
 
   useEffect(() => {
     // Setup WebSocket with authentication
-    const wsUrl = import.meta.env.VITE_API_URL 
-      ? import.meta.env.VITE_API_URL.replace('http', 'ws').replace('/api', '') 
-      : 'ws://localhost:8000';
+    const apiBase = import.meta.env.VITE_API_URL || 'https://remote-assist-y8ot.onrender.com/api';
+    let wsUrl = 'wss://remote-assist-y8ot.onrender.com';
+    try {
+      const parsedUrl = new URL(apiBase);
+      const protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${parsedUrl.host}`;
+    } catch {
+      wsUrl = apiBase.replace(/^http/, 'ws').replace(/\/api$/, '');
+    }
       
     const token = localStorage.getItem('token');
     const authQuery = token ? `&token=${encodeURIComponent(token)}` : '';
