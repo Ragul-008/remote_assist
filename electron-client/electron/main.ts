@@ -1,7 +1,52 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen } from 'electron'
 import path from 'node:path'
-import { exec } from 'node:child_process'
+import { exec, execSync, spawn } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
+
+// Check if running as administrator on Windows
+function isRunningAsAdmin(): boolean {
+  if (process.platform !== 'win32') return true;
+  try {
+    // 'fsutil dirty query %systemdrive%' only succeeds with code 0 if run with Administrator privileges
+    execSync('fsutil dirty query %systemdrive%', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Auto-elevate process on Windows if not running as Administrator
+if (process.platform === 'win32' && !isRunningAsAdmin()) {
+  if (app.isPackaged) {
+    const targetExe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+    const rawArgs = process.argv.slice(1);
+    const argList = rawArgs
+      .filter(arg => !arg.startsWith('--inspect') && !arg.startsWith('--remote-debugging-port'))
+      .map(arg => `"${arg.replace(/"/g, '`"')}"`)
+      .join(', ');
+
+    const psArgs = argList.length > 0 ? `-ArgumentList ${argList}` : '';
+    try {
+      const child = spawn('powershell.exe', [
+        '-NoProfile',
+        '-WindowStyle', 'Hidden',
+        '-Command',
+        `Start-Process -FilePath "${targetExe}" ${psArgs} -Verb RunAs`
+      ], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    } catch (err) {
+      console.error('Failed to launch elevated process:', err);
+    }
+    // Terminate un-elevated instance immediately so single-instance lock is free for elevated instance
+    app.exit(0);
+  } else {
+    console.warn('\x1b[33m%s\x1b[0m', '⚠️  [RemoteAssist] Not running with Administrator privileges.');
+    console.warn('\x1b[33m%s\x1b[0m', '   For UAC prompt capture and input injection to work during dev, launch your terminal/IDE as Administrator.');
+  }
+}
 
 // Safely manage Windows UAC Secure Desktop policy for IT Remote Support
 function setUACSecureDesktop(enableSecureDesktop: boolean) {
@@ -11,34 +56,49 @@ function setUACSecureDesktop(enableSecureDesktop: boolean) {
   // 1 = Show UAC on isolated Secure Desktop (Windows default)
   exec(`reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d ${value} /f`, (err) => {
     if (err) {
-      console.warn('Could not update PromptOnSecureDesktop policy:', err.message);
+      console.warn('Could not update PromptOnSecureDesktop policy (requires Admin):', err.message);
     } else {
-      console.log(`PromptOnSecureDesktop policy set to: ${value}`);
+      console.log(`PromptOnSecureDesktop policy updated to: ${value} (SecureDesktop: ${enableSecureDesktop})`);
     }
   });
 }
 
-// Ensure security policy is always restored on any shutdown or exit
+function restoreUACSecureDesktopSync() {
+  if (process.platform !== 'win32') return;
+  try {
+    execSync('reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 1 /f', { stdio: 'ignore' });
+  } catch {
+    // Ignore during shutdown
+  }
+}
+
+// Ensure security policy is always synchronously restored on any shutdown or exit
 app.on('before-quit', () => {
-  setUACSecureDesktop(true);
+  restoreUACSecureDesktopSync();
+});
+app.on('will-quit', () => {
+  restoreUACSecureDesktopSync();
 });
 process.on('exit', () => {
-  setUACSecureDesktop(true);
+  restoreUACSecureDesktopSync();
 });
 
 // Bypass Vite bundler for native module
 const nutjs = require(String('@nut-tree-fork/nut-js'))
 const { mouse, Point, keyboard, Key, screen } = nutjs
 
-process.env.DIST = path.join(__dirname, '../dist')
-process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(process.env.DIST, '../public')
+const DIST = path.join(__dirname, '../dist')
+const VITE_PUBLIC = app.isPackaged ? DIST : path.join(DIST, '../public')
+
+process.env.DIST = DIST
+process.env.VITE_PUBLIC = VITE_PUBLIC
 
 let win: BrowserWindow | null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(VITE_PUBLIC, 'electron-vite.svg'),
     width: 800,
     height: 600,
     webPreferences: {
@@ -56,7 +116,7 @@ function createWindow() {
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    win.loadFile(path.join(process.env.DIST, 'index.html'))
+    win.loadFile(path.join(DIST, 'index.html'))
     win.webContents.openDevTools() // Open DevTools to debug white screen
   }
 }
@@ -192,6 +252,33 @@ if (!gotTheLock) {
   ipcMain.on('quit-app', () => {
     setUACSecureDesktop(true); // Restore Windows default security
     app.quit()
+  })
+
+  // Convert customer window into a compact, always-on-top floating control widget
+  ipcMain.on('set-floating-widget', () => {
+    if (!win) return;
+    try {
+      const primaryDisplay = electronScreen.getPrimaryDisplay();
+      const { width, height } = primaryDisplay.workAreaSize;
+      const widgetWidth = 360;
+      const widgetHeight = 68;
+
+      win.setMinimumSize(widgetWidth, widgetHeight);
+      win.setSize(widgetWidth, widgetHeight);
+      win.setPosition(
+        Math.round(width - widgetWidth - 20),
+        Math.round(height - widgetHeight - 20)
+      );
+      win.setAlwaysOnTop(true, 'screen-saver');
+      win.setResizable(false);
+      win.setMaximizable(false);
+      win.setMinimizable(false);
+      win.show();
+      win.focus();
+    } catch (err) {
+      console.error('Failed to configure floating widget:', err);
+      win?.show();
+    }
   })
 
   // Auto-approve screen sharing requests in Electron

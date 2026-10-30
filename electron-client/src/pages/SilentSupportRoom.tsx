@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
+import { ShieldCheck, PhoneOff } from 'lucide-react';
 
 const SilentSupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
@@ -17,19 +18,27 @@ const SilentSupportRoom = () => {
   };
 
   useEffect(() => {
-    // Setup WebSocket
-    const wsUrl = import.meta.env.VITE_API_URL 
-      ? import.meta.env.VITE_API_URL.replace('http', 'ws').replace('/api', '') 
-      : 'ws://localhost:8000';
+    // Setup WebSocket with proper secure wss/ws protocol
+    let wsUrl = 'ws://localhost:8000';
+    if (import.meta.env.VITE_API_URL) {
+      try {
+        const url = new URL(import.meta.env.VITE_API_URL);
+        const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${url.host}`;
+      } catch {
+        wsUrl = import.meta.env.VITE_API_URL.replace(/^http/, 'ws').replace(/\/api$/, '');
+      }
+    }
       
     const socket = new WebSocket(`${wsUrl}/ws/${sessionCode}?role=customer`);
     wsRef.current = socket;
     
     socket.onopen = () => {
-      // Start sharing screen silently immediately upon connection
+      // Start sharing screen immediately upon connection
       startScreenShare();
       if ((window as any).ipcRenderer) {
         (window as any).ipcRenderer.send('session-active', true);
+        (window as any).ipcRenderer.send('set-floating-widget');
       }
     };
 
@@ -40,7 +49,7 @@ const SilentSupportRoom = () => {
           (window as any).ipcRenderer.send('remote-control', data.payload);
         }
       } else if (data.type === 'system' && data.message?.toLowerCase().includes('ended')) {
-        // Technician ended the session -> silently close the app so it doesn't run permanently
+        // Technician ended the session -> close the app cleanly
         if ((window as any).ipcRenderer) {
           (window as any).ipcRenderer.send('quit-app');
         }
@@ -132,8 +141,54 @@ const SilentSupportRoom = () => {
     }
   };
 
-  // Return absolutely no UI to fulfill the headless requirement
-  return null;
+  const handleDisconnect = () => {
+    stopScreenShare();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ 
+        type: 'system', 
+        message: 'Customer manually ended the remote session' 
+      }));
+      wsRef.current.close();
+    }
+    if ((window as any).ipcRenderer) {
+      (window as any).ipcRenderer.send('session-active', false);
+      (window as any).ipcRenderer.send('quit-app');
+    }
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 flex items-center justify-between px-4 py-2 bg-gray-900/95 text-white backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl select-none"
+      style={{ WebkitAppRegion: 'drag' } as any}
+    >
+      <div className="flex items-center gap-3">
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+        </span>
+        <div>
+          <div className="flex items-center gap-1.5 text-xs font-bold tracking-wide text-gray-200">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Remote Support Active</span>
+          </div>
+          <div className="text-[11px] text-gray-400 font-mono">
+            Session: #{sessionCode}
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleDisconnect}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-md transition-all cursor-pointer"
+        title="Stop screen sharing and disconnect technician"
+      >
+        <PhoneOff className="w-3.5 h-3.5" />
+        <span>End Session</span>
+      </button>
+    </div>
+  );
 };
 
 export default SilentSupportRoom;
