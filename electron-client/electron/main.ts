@@ -15,42 +15,9 @@ function isRunningAsAdmin(): boolean {
   }
 }
 
-// Auto-elevate process on Windows if not running as Administrator
-if (process.platform === 'win32' && !isRunningAsAdmin()) {
-  if (app.isPackaged) {
-    const targetExe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
-    const rawArgs = process.argv.slice(1);
-    const argList = rawArgs
-      .filter(arg => !arg.startsWith('--inspect') && !arg.startsWith('--remote-debugging-port'))
-      .map(arg => `"${arg.replace(/"/g, '`"')}"`)
-      .join(', ');
-
-    const psArgs = argList.length > 0 ? `-ArgumentList ${argList}` : '';
-    try {
-      const child = spawn('powershell.exe', [
-        '-NoProfile',
-        '-WindowStyle', 'Hidden',
-        '-Command',
-        `Start-Process -FilePath "${targetExe}" ${psArgs} -Verb RunAs`
-      ], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-    } catch (err) {
-      console.error('Failed to launch elevated process:', err);
-    }
-    // Terminate un-elevated instance immediately so single-instance lock is free for elevated instance
-    app.exit(0);
-  } else {
-    console.warn('\x1b[33m%s\x1b[0m', '⚠️  [RemoteAssist] Not running with Administrator privileges.');
-    console.warn('\x1b[33m%s\x1b[0m', '   For UAC prompt capture and input injection to work during dev, launch your terminal/IDE as Administrator.');
-  }
-}
-
 // Safely manage Windows UAC Secure Desktop policy for IT Remote Support
 function setUACSecureDesktop(enableSecureDesktop: boolean) {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32' || !isRunningAsAdmin()) return;
   const value = enableSecureDesktop ? 1 : 0;
   // 0 = Show UAC on normal desktop (visible to IT support stream)
   // 1 = Show UAC on isolated Secure Desktop (Windows default)
@@ -64,7 +31,7 @@ function setUACSecureDesktop(enableSecureDesktop: boolean) {
 }
 
 function restoreUACSecureDesktopSync() {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32' || !isRunningAsAdmin()) return;
   try {
     execSync('reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 1 /f', { stdio: 'ignore' });
   } catch {
