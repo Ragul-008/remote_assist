@@ -97,6 +97,11 @@ function handleDeepLink(argv: string[]) {
         const sessionId = parsedUrl.searchParams.get('sessionId');
         const name = parsedUrl.searchParams.get('name');
         if (sessionId && name) {
+          const isElevatedRelaunch = argv.includes('--elevated-relaunch');
+          if (isElevatedRelaunch) {
+            win.hide();
+            setUACSecureDesktop(false);
+          }
           win.webContents.send('handle-deep-link', { sessionId, name });
         }
       }
@@ -124,7 +129,15 @@ if (!gotTheLock) {
       const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
       if (match) {
         const sessionId = match[1];
-        
+        const isElevatedRelaunch = commandLine.includes('--elevated-relaunch');
+
+        if (isElevatedRelaunch) {
+          win.hide();
+          setUACSecureDesktop(false);
+          win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
+          return;
+        }
+
         // Present native prompt
         const response = dialog.showMessageBoxSync(win, {
           type: 'question',
@@ -176,7 +189,15 @@ if (!gotTheLock) {
         const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
         if (match && win) {
           const sessionId = match[1];
+          const isElevatedRelaunch = process.argv.includes('--elevated-relaunch');
           
+          if (isElevatedRelaunch) {
+            win!.hide();
+            setUACSecureDesktop(false);
+            win!.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
+            return;
+          }
+
           // Small delay so UI doesn't visually flash before hiding
           setTimeout(() => {
             const response = dialog.showMessageBoxSync(win!, {
@@ -318,5 +339,67 @@ if (!gotTheLock) {
       console.error("Remote control error:", err)
     }
   })
+
+  // Zoho Assist-style remote session elevation
+  ipcMain.on('elevate-session', (_event, payload: { mode: 'credentials' | 'prompt', username?: string, password?: string, sessionCode?: string }) => {
+    if (process.platform !== 'win32') return;
+
+    const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+    const sessionCode = payload?.sessionCode || '';
+
+    const args: string[] = ['--elevated-relaunch'];
+    if (sessionCode) {
+      args.push(`remoteassist://join?sessionId=${sessionCode}&name=Customer`);
+    }
+
+    const safeExe = exePath.replace(/'/g, "''");
+    const argListStr = args.map(a => `'${a.replace(/'/g, "''")}'`).join(', ');
+
+    let psScript = '';
+    if (payload?.mode === 'credentials' && payload.username && payload.password) {
+      const safeUser = payload.username.replace(/'/g, "''");
+      const safePass = payload.password.replace(/'/g, "''");
+      psScript = `
+        $secPass = ConvertTo-SecureString '${safePass}' -AsPlainText -Force;
+        $cred = New-Object System.Management.Automation.PSCredential ('${safeUser}', $secPass);
+        Start-Process -FilePath '${safeExe}' -ArgumentList @(${argListStr}) -Credential $cred;
+      `.trim();
+    } else {
+      // Prompt customer with standard Windows UAC Consent
+      psScript = `
+        Start-Process -FilePath '${safeExe}' -ArgumentList @(${argListStr}) -Verb RunAs;
+      `.trim();
+    }
+
+    console.log(`[ELEVATION] Triggering elevation (mode: ${payload?.mode})...`);
+
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-WindowStyle', 'Hidden',
+      '-Command',
+      psScript
+    ]);
+
+    let errOutput = '';
+    child.stderr.on('data', (d) => {
+      errOutput += d.toString();
+    });
+
+    child.on('close', (code) => {
+      if (code === 0 && !errOutput.toLowerCase().includes('error')) {
+        console.log('[ELEVATION] Elevated instance launched successfully. Handing over single instance lock...');
+        try {
+          app.releaseSingleInstanceLock();
+        } catch (e) {
+          console.error('Error releasing single instance lock:', e);
+        }
+        setTimeout(() => {
+          app.quit();
+        }, 800);
+      } else {
+        console.error(`[ELEVATION] Elevation failed with code ${code}:`, errOutput);
+      }
+    });
+  });
 })
 }

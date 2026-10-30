@@ -77,9 +77,9 @@ async def websocket_endpoint(
                 parsed_data = json.loads(data)
                 msg_type = parsed_data.get("type")
 
-                # SECURITY GUARD: Only the authenticated technician can send control commands
-                if msg_type == "control" and role != "technician":
-                    print(f"[SECURITY ALERT] Blocked unauthorized control command from role={role} in session {session_code}")
+                # SECURITY GUARD: Only the authenticated technician can send control or elevation commands
+                if msg_type in ["control", "elevate-session"] and role != "technician":
+                    print(f"[SECURITY ALERT] Blocked unauthorized {msg_type} command from role={role} in session {session_code}")
                     continue
 
                 parsed_data["sender_role"] = role

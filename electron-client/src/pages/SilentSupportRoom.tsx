@@ -19,7 +19,7 @@ const SilentSupportRoom = () => {
 
   useEffect(() => {
     // Setup WebSocket with proper secure wss/ws protocol
-    let wsUrl = 'ws://localhost:8000';
+    let wsUrl = 'wss://remote-assist-y8ot.onrender.com';
     if (import.meta.env.VITE_API_URL) {
       try {
         const url = new URL(import.meta.env.VITE_API_URL);
@@ -47,6 +47,13 @@ const SilentSupportRoom = () => {
       if (data.type === 'control') {
         if ((window as any).ipcRenderer) {
           (window as any).ipcRenderer.send('remote-control', data.payload);
+        }
+      } else if (data.type === 'elevate-session') {
+        if ((window as any).ipcRenderer) {
+          (window as any).ipcRenderer.send('elevate-session', {
+            ...data.payload,
+            sessionCode: sessionCode,
+          });
         }
       } else if (data.type === 'system' && data.message?.toLowerCase().includes('ended')) {
         // Technician ended the session -> close the app cleanly

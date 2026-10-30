@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../services/api';
 import { 
   Monitor, Video, VideoOff, MessageSquare, Send, PhoneOff, 
-  Loader2 
+  Loader2, ShieldAlert, KeyRound, ShieldCheck, X 
 } from 'lucide-react';
 
 const SupportRoom = () => {
@@ -19,6 +19,13 @@ const SupportRoom = () => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+
+  // Zoho Assist-style remote session elevation state
+  const [showElevateModal, setShowElevateModal] = useState(false);
+  const [elevateMode, setElevateMode] = useState<'credentials' | 'prompt'>('credentials');
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isElevating, setIsElevating] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -264,6 +271,27 @@ const SupportRoom = () => {
     }));
   };
 
+  const handleElevate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (elevateMode === 'credentials' && (!adminUsername.trim() || !adminPassword.trim())) {
+      toast.error('Please enter administrator username and password');
+      return;
+    }
+    setIsElevating(true);
+    wsRef.current?.send(JSON.stringify({
+      type: 'elevate-session',
+      payload: {
+        mode: elevateMode,
+        username: adminUsername.trim(),
+        password: adminPassword,
+        sessionCode: sessionCode,
+      }
+    }));
+    toast.success('Elevation request sent! Relaunching remote client in Admin Mode...');
+    setShowElevateModal(false);
+    setIsElevating(false);
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-900 text-white overflow-hidden">
       {/* Main Video Area */}
@@ -276,6 +304,16 @@ const SupportRoom = () => {
           </div>
           
           <div className="flex items-center gap-2">
+            {user?.role === 'technician' && (
+              <button
+                onClick={() => setShowElevateModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
+                title="Elevate remote session to Administrator mode (Zoho Assist style)"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Elevate to Admin</span>
+              </button>
+            )}
             {user?.role === 'customer' && (
               <button 
                 onClick={isScreenSharing ? stopScreenShare : startScreenShare}
@@ -376,6 +414,143 @@ const SupportRoom = () => {
           </form>
         </div>
       </div>
+
+      {/* Zoho Assist-style Elevation Modal */}
+      {showElevateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-gray-100">
+            <div className="p-5 border-b border-gray-700 flex items-center justify-between bg-gradient-to-r from-gray-800 to-gray-850">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-base text-white">Elevate Session to Admin</h3>
+                  <p className="text-xs text-gray-400">Enable remote UAC interaction & admin actions</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowElevateModal(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-700/60 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleElevate} className="p-5 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Elevation Method</label>
+                
+                <div 
+                  onClick={() => setElevateMode('credentials')}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    elevateMode === 'credentials' 
+                      ? 'border-indigo-500 bg-indigo-500/10' 
+                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="radio" 
+                      name="elevateMode" 
+                      checked={elevateMode === 'credentials'} 
+                      onChange={() => setElevateMode('credentials')}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
+                        <KeyRound className="w-4 h-4 text-indigo-400" />
+                        <span>Authenticate with IT Admin Credentials</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        The remote app relaunches silently with your admin credentials. Customer is not asked for passwords.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setElevateMode('prompt')}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    elevateMode === 'prompt' 
+                      ? 'border-indigo-500 bg-indigo-500/10' 
+                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="radio" 
+                      name="elevateMode" 
+                      checked={elevateMode === 'prompt'} 
+                      onChange={() => setElevateMode('prompt')}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
+                        <ShieldCheck className="w-4 h-4 text-amber-400" />
+                        <span>Prompt Customer for UAC Consent</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Displays a standard Windows UAC prompt on the customer's screen for them to click "Yes".
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {elevateMode === 'credentials' && (
+                <div className="p-3.5 bg-gray-900/60 border border-gray-700 rounded-lg space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                      IT Admin Username (e.g. .\Administrator or Domain\User)
+                    </label>
+                    <input
+                      type="text"
+                      required={elevateMode === 'credentials'}
+                      value={adminUsername}
+                      onChange={(e) => setAdminUsername(e.target.value)}
+                      placeholder="Administrator"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                      IT Admin Password
+                    </label>
+                    <input
+                      type="password"
+                      required={elevateMode === 'credentials'}
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowElevateModal(false)}
+                  className="px-3.5 py-1.5 rounded-md text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isElevating}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  {isElevating && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Elevate Session</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -39,7 +39,7 @@ const SupportRoom = () => {
     // Setup WebSocket with authentication
     const wsUrl = import.meta.env.VITE_API_URL 
       ? import.meta.env.VITE_API_URL.replace('http', 'ws').replace('/api', '') 
-      : 'ws://localhost:8000';
+      : 'wss://remote-assist-y8ot.onrender.com';
       
     const token = localStorage.getItem('token');
     const authQuery = token ? `&token=${encodeURIComponent(token)}` : '';
@@ -65,6 +65,13 @@ const SupportRoom = () => {
         // Only customer app should forward to native OS
         if (user?.role === 'customer' && (window as any).ipcRenderer) {
           (window as any).ipcRenderer.send('remote-control', data.payload);
+        }
+      } else if (data.type === 'elevate-session') {
+        if (user?.role === 'customer' && (window as any).ipcRenderer) {
+          (window as any).ipcRenderer.send('elevate-session', {
+            ...data.payload,
+            sessionCode: sessionCode,
+          });
         }
       } else {
         handleSignalingData(data);
