@@ -74,9 +74,23 @@ const SilentSupportRoom = () => {
       }
     };
 
+    const handleAdminStatusChanged = (_event: any, isAdmin: boolean) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'admin-status',
+          payload: { isAdmin }
+        }));
+      }
+    };
+
+    if ((window as any).ipcRenderer) {
+      (window as any).ipcRenderer.on('admin-status-changed', handleAdminStatusChanged);
+    }
+
     return () => {
       stopScreenShare();
       if ((window as any).ipcRenderer) {
+        (window as any).ipcRenderer.off('admin-status-changed', handleAdminStatusChanged);
         (window as any).ipcRenderer.send('session-active', false);
       }
       if (peerConnectionRef.current) peerConnectionRef.current.close();

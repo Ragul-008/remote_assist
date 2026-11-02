@@ -45,10 +45,10 @@
       "target": [
         "portable"
       ],
-      "requestedExecutionLevel": "highestAvailable"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "portable": {
-      "requestExecutionLevel": "highest"
+      "requestExecutionLevel": "admin"
     }
   },
   "dependencies": {

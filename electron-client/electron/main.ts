@@ -18,17 +18,33 @@ function isRunningAsAdmin(): boolean {
   }
 }
 
+// Check if UAC elevation / visible desktop policy is active
+function isUACElevationActive(): boolean {
+  if (process.platform !== 'win32') return true;
+  if (isRunningAsAdmin()) return true;
+  try {
+    const output = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop', { encoding: 'utf8' });
+    if (output.includes('0x0')) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 // Safely manage Windows UAC Secure Desktop policy for IT Remote Support
 function setUACSecureDesktop(enableSecureDesktop: boolean) {
-  if (process.platform !== 'win32' || !isRunningAsAdmin()) return;
+  if (process.platform !== 'win32') return;
   const value = enableSecureDesktop ? 1 : 0;
   // 0 = Show UAC on normal desktop (visible to IT support stream)
   // 1 = Show UAC on isolated Secure Desktop (Windows default)
   exec(`reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d ${value} /f`, (err) => {
     if (err) {
-      console.warn('Could not update PromptOnSecureDesktop policy (requires Admin):', err.message);
+      console.warn('Could not update PromptOnSecureDesktop policy:', err.message);
     } else {
       console.log(`PromptOnSecureDesktop policy updated to: ${value} (SecureDesktop: ${enableSecureDesktop})`);
+      win?.webContents.send('admin-status-changed', !enableSecureDesktop);
     }
   });
 }
@@ -291,7 +307,7 @@ if (!gotTheLock) {
 
   // Query administrator privilege status
   ipcMain.handle('is-admin', () => {
-    return isRunningAsAdmin();
+    return isUACElevationActive();
   });
 
   // Auto-approve screen sharing requests in Electron
@@ -369,17 +385,6 @@ if (!gotTheLock) {
   ipcMain.on('elevate-session', (_event, payload: { mode: 'credentials' | 'prompt', username?: string, password?: string, sessionCode?: string }) => {
     if (process.platform !== 'win32') return;
 
-    const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
-    const sessionCode = payload?.sessionCode || '';
-
-    const args: string[] = ['--elevated-relaunch'];
-    if (sessionCode) {
-      args.push(`remoteassist://join?sessionId=${sessionCode}&name=Customer`);
-    }
-
-    const safeExe = exePath.replace(/'/g, "''");
-    const argListStr = args.map(a => `'${a.replace(/'/g, "''")}'`).join(', ');
-
     let psScript = '';
     if (payload?.mode === 'credentials' && payload.username && payload.password) {
       const safeUser = payload.username.replace(/'/g, "''");
@@ -387,12 +392,12 @@ if (!gotTheLock) {
       psScript = `
         $secPass = ConvertTo-SecureString '${safePass}' -AsPlainText -Force;
         $cred = New-Object System.Management.Automation.PSCredential ('${safeUser}', $secPass);
-        Start-Process -FilePath '${safeExe}' -ArgumentList @(${argListStr}) -Credential $cred;
+        Start-Process cmd.exe -Credential $cred -ArgumentList '/c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f' -Wait;
       `.trim();
     } else {
-      // Prompt customer with standard Windows UAC Consent
+      // Prompt customer with standard Windows UAC Consent to enable IT Remote Support desktop visibility
       psScript = `
-        Start-Process -FilePath '${safeExe}' -ArgumentList @(${argListStr}) -Verb RunAs;
+        Start-Process cmd.exe -ArgumentList '/c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f' -Verb RunAs -Wait;
       `.trim();
     }
 
@@ -411,19 +416,16 @@ if (!gotTheLock) {
     });
 
     child.on('close', (code) => {
-      if (code === 0 && !errOutput.toLowerCase().includes('error')) {
-        console.log('[ELEVATION] Elevated instance launched successfully. Handing over single instance lock...');
-        try {
-          app.releaseSingleInstanceLock();
-        } catch (e) {
-          console.error('Error releasing single instance lock:', e);
+      console.log(`[ELEVATION] Command finished with code ${code}. Checking UAC policy...`);
+      setTimeout(() => {
+        const isElevated = isUACElevationActive();
+        if (isElevated) {
+          console.log('[ELEVATION] Success: PromptOnSecureDesktop is now 0. Notifying renderer...');
+          win?.webContents.send('admin-status-changed', true);
+        } else {
+          console.warn('[ELEVATION] Elevation policy check returned false. Code:', code, errOutput);
         }
-        setTimeout(() => {
-          app.quit();
-        }, 800);
-      } else {
-        console.error(`[ELEVATION] Elevation failed with code ${code}:`, errOutput);
-      }
+      }, 500);
     });
   });
 })
