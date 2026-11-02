@@ -390,9 +390,11 @@ if (!gotTheLock) {
       const safeUser = payload.username.replace(/'/g, "''");
       const safePass = payload.password.replace(/'/g, "''");
       psScript = `
-        $secPass = ConvertTo-SecureString '${safePass}' -AsPlainText -Force;
-        $cred = New-Object System.Management.Automation.PSCredential ('${safeUser}', $secPass);
-        Start-Process cmd.exe -Credential $cred -ArgumentList '/c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f' -Wait;
+        $regCmd = 'cmd.exe /c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f';
+        schtasks /create /tn "RemoteAssistElevate" /tr $regCmd /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
+        schtasks /run /tn "RemoteAssistElevate";
+        Start-Sleep -Milliseconds 1200;
+        schtasks /delete /tn "RemoteAssistElevate" /f;
       `.trim();
     } else {
       // Prompt customer with standard Windows UAC Consent to enable IT Remote Support desktop visibility

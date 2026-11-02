@@ -45,10 +45,10 @@
       "target": [
         "portable"
       ],
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "portable": {
-      "requestExecutionLevel": "admin"
+      "requestExecutionLevel": "user"
     }
   },
   "dependencies": {
