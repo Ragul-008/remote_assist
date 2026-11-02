@@ -26,6 +26,7 @@ const SupportRoom = () => {
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isElevating, setIsElevating] = useState(false);
+  const [isRemoteAdmin, setIsRemoteAdmin] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,6 +75,8 @@ const SupportRoom = () => {
         scrollToBottom();
       } else if (data.type === 'system') {
         toast(data.message, { icon: 'ℹ️' });
+      } else if (data.type === 'admin-status') {
+        setIsRemoteAdmin(Boolean(data.payload?.isAdmin));
       } else {
         handleSignalingData(data);
       }
@@ -305,14 +308,24 @@ const SupportRoom = () => {
           
           <div className="flex items-center gap-2">
             {user?.role === 'technician' && (
-              <button
-                onClick={() => setShowElevateModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
-                title="Elevate remote session to Administrator mode (Zoho Assist style)"
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>Elevate to Admin</span>
-              </button>
+              isRemoteAdmin ? (
+                <div 
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/90 text-white rounded-md text-xs font-semibold shadow-sm"
+                  title="Remote client is running in Administrator mode. Windows UAC prompts and elevated apps are visible and controllable."
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Admin Mode Active</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowElevateModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
+                  title="Elevate remote session to Administrator mode to see and control Windows UAC prompts"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Elevate to Admin</span>
+                </button>
+              )
             )}
             {user?.role === 'customer' && (
               <button 
@@ -439,6 +452,13 @@ const SupportRoom = () => {
             </div>
 
             <form onSubmit={handleElevate} className="p-5 space-y-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200 flex items-start gap-2.5">
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Windows isolates UAC prompts (like &quot;Run as administrator&quot;) on the Secure Desktop. Elevating this session enables UAC prompt visibility and administrative control for the technician.
+                </span>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Elevation Method</label>
                 

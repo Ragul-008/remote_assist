@@ -33,12 +33,21 @@ const SilentSupportRoom = () => {
     const socket = new WebSocket(`${wsUrl}/ws/${sessionCode}?role=customer`);
     wsRef.current = socket;
     
-    socket.onopen = () => {
+    socket.onopen = async () => {
       // Start sharing screen immediately upon connection
       startScreenShare();
       if ((window as any).ipcRenderer) {
         (window as any).ipcRenderer.send('session-active', true);
         (window as any).ipcRenderer.send('set-floating-widget');
+        try {
+          const isAdmin = await (window as any).ipcRenderer.invoke('is-admin');
+          socket.send(JSON.stringify({
+            type: 'admin-status',
+            payload: { isAdmin }
+          }));
+        } catch {
+          // Ignore if is-admin is not supported
+        }
       }
     };
 
@@ -165,7 +174,7 @@ const SilentSupportRoom = () => {
 
   return (
     <div 
-      className="fixed inset-0 flex items-center justify-between px-4 py-2 bg-gray-900/95 text-white backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl select-none"
+      className="w-full h-full box-border flex items-center justify-between px-4 py-2 bg-gray-900/95 text-white backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl select-none"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
       <div className="flex items-center gap-3">

@@ -1,7 +1,10 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen, Menu } from 'electron'
 import path from 'node:path'
 import { exec, execSync, spawn } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
+
+// Disable default menu bar across the entire application
+Menu.setApplicationMenu(null);
 
 // Check if running as administrator on Windows
 function isRunningAsAdmin(): boolean {
@@ -64,27 +67,42 @@ let win: BrowserWindow | null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 function createWindow() {
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  const isSessionLaunch = process.argv.some(arg => 
+    arg.startsWith('remoteassist://') || 
+    arg.includes('RemoteAssist_Session_') ||
+    arg.includes('--elevated-relaunch')
+  ) || Boolean(exePath.match(/RemoteAssist_Session_(\d+)/i));
+
   win = new BrowserWindow({
     icon: path.join(VITE_PUBLIC, 'electron-vite.svg'),
-    width: 800,
-    height: 600,
+    title: 'RemoteAssist',
+    width: isSessionLaunch ? 380 : 800,
+    height: isSessionLaunch ? 72 : 600,
+    frame: !isSessionLaunch,
+    transparent: isSessionLaunch,
+    hasShadow: !isSessionLaunch,
+    autoHideMenuBar: true,
+    show: !isSessionLaunch,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false, // CRITICAL: Prevent WebRTC/WebSocket throttling when window is hidden
     },
-  })
+  });
+
+  win.removeMenu();
+  win.setMenuBarVisibility(false);
 
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
-  })
+  });
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
     win.loadFile(path.join(DIST, 'index.html'))
-    win.webContents.openDevTools() // Open DevTools to debug white screen
   }
 }
 
@@ -248,14 +266,16 @@ if (!gotTheLock) {
     try {
       const primaryDisplay = electronScreen.getPrimaryDisplay();
       const { width, height } = primaryDisplay.workAreaSize;
-      const widgetWidth = 360;
-      const widgetHeight = 68;
+      const widgetWidth = 380;
+      const widgetHeight = 72;
 
+      win.removeMenu();
+      win.setMenuBarVisibility(false);
       win.setMinimumSize(widgetWidth, widgetHeight);
-      win.setSize(widgetWidth, widgetHeight);
+      win.setContentSize(widgetWidth, widgetHeight);
       win.setPosition(
-        Math.round(width - widgetWidth - 20),
-        Math.round(height - widgetHeight - 20)
+        Math.round(width - widgetWidth - 24),
+        Math.round(height - widgetHeight - 24)
       );
       win.setAlwaysOnTop(true, 'screen-saver');
       win.setResizable(false);
@@ -267,7 +287,12 @@ if (!gotTheLock) {
       console.error('Failed to configure floating widget:', err);
       win?.show();
     }
-  })
+  });
+
+  // Query administrator privilege status
+  ipcMain.handle('is-admin', () => {
+    return isRunningAsAdmin();
+  });
 
   // Auto-approve screen sharing requests in Electron
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {

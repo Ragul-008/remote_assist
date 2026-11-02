@@ -45,10 +45,10 @@
       "target": [
         "portable"
       ],
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "highestAvailable"
     },
     "portable": {
-      "requestExecutionLevel": "user"
+      "requestExecutionLevel": "highestAvailable"
     }
   },
   "dependencies": {
