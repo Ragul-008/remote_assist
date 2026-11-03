@@ -420,32 +420,8 @@ function startApplication() {
       ipcMain.on('react-ready', () => {
         const sessionInfo = parseSessionLaunchInfo(process.argv);
         if (sessionInfo && win) {
-          const isElevated = process.argv.includes('--elevated-relaunch');
-          if (isElevated) {
-            setUACSecureDesktop(false);
-            win.webContents.send('handle-deep-link', sessionInfo);
-            return;
-          }
-
-          // Initial launch confirmation prompt for customer
-          setTimeout(() => {
-            const response = dialog.showMessageBoxSync(win!, {
-              type: 'question',
-              buttons: ['Yes, Allow', 'No, Cancel'],
-              title: 'RemoteAssist Request',
-              message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
-              defaultId: 0,
-              cancelId: 1
-            });
-
-            if (response === 0) {
-              setUACSecureDesktop(false);
-              win!.webContents.send('handle-deep-link', sessionInfo);
-            } else {
-              setUACSecureDesktop(true);
-              app.quit();
-            }
-          }, 100);
+          setUACSecureDesktop(false);
+          win.webContents.send('handle-deep-link', sessionInfo);
         }
       });
     }
