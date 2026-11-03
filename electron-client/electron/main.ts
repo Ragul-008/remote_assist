@@ -6,7 +6,7 @@ import { autoUpdater } from 'electron-updater'
 // Disable default menu bar across the entire application
 Menu.setApplicationMenu(null);
 
-// Check if running as administrator on Windows
+// Check if running as administrator on Windows (High Integrity)
 function isRunningAsAdmin(): boolean {
   if (process.platform !== 'win32') return true;
   try {
@@ -44,7 +44,7 @@ function setUACSecureDesktop(enableSecureDesktop: boolean) {
       console.warn('Could not update PromptOnSecureDesktop policy:', err.message);
     } else {
       console.log(`PromptOnSecureDesktop policy updated to: ${value} (SecureDesktop: ${enableSecureDesktop})`);
-      win?.webContents.send('admin-status-changed', !enableSecureDesktop);
+      win?.webContents.send('admin-status-changed', !enableSecureDesktop || isRunningAsAdmin());
     }
   });
 }
@@ -82,13 +82,46 @@ process.env.VITE_PUBLIC = VITE_PUBLIC
 let win: BrowserWindow | null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
-function createWindow() {
+// Helper to reliably extract session info from any launch method
+function parseSessionLaunchInfo(argv: string[]): { sessionId: string; name: string } | null {
+  // 1. Deep link protocol: remoteassist://join?sessionId=123&name=...
+  const urlArg = argv.find(arg => arg.startsWith('remoteassist://'));
+  if (urlArg) {
+    try {
+      const parsedUrl = new URL(urlArg);
+      const sessionId = parsedUrl.searchParams.get('sessionId');
+      const name = parsedUrl.searchParams.get('name') || 'Customer';
+      if (sessionId) return { sessionId, name };
+    } catch (e) {
+      console.error('Failed to parse deep link URL:', e);
+    }
+  }
+
+  // 2. Explicit command line argument: --session=123 or --session 123
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith('--session=')) {
+      const sessionId = arg.split('=')[1];
+      if (sessionId) return { sessionId, name: 'Customer' };
+    }
+    if (arg === '--session' && argv[i + 1]) {
+      return { sessionId: argv[i + 1], name: 'Customer' };
+    }
+  }
+
+  // 3. Dynamic filename: RemoteAssist_Session_123456.exe
   const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
-  const isSessionLaunch = process.argv.some(arg => 
-    arg.startsWith('remoteassist://') || 
-    arg.includes('RemoteAssist_Session_') ||
-    arg.includes('--elevated-relaunch')
-  ) || Boolean(exePath.match(/RemoteAssist_Session_(\d+)/i));
+  const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
+  if (match) {
+    return { sessionId: match[1], name: 'Customer' };
+  }
+
+  return null;
+}
+
+function createWindow() {
+  const sessionInfo = parseSessionLaunchInfo(process.argv);
+  const isSessionLaunch = Boolean(sessionInfo) || process.argv.includes('--elevated-relaunch');
 
   win = new BrowserWindow({
     icon: path.join(VITE_PUBLIC, 'electron-vite.svg'),
@@ -122,140 +155,7 @@ function createWindow() {
   }
 }
 
-function handleDeepLink(argv: string[]) {
-  const url = argv.find(arg => arg.startsWith('remoteassist://'));
-  if (url && win) {
-    try {
-      const parsedUrl = new URL(url);
-      if (parsedUrl.hostname === 'join') {
-        const sessionId = parsedUrl.searchParams.get('sessionId');
-        const name = parsedUrl.searchParams.get('name');
-        if (sessionId && name) {
-          const isElevatedRelaunch = argv.includes('--elevated-relaunch');
-          if (isElevatedRelaunch) {
-            win.hide();
-            setUACSecureDesktop(false);
-          }
-          win.webContents.send('handle-deep-link', { sessionId, name });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse deep link', e);
-    }
-  }
-}
-
-const gotTheLock = app.requestSingleInstanceLock()
-
-if (!gotTheLock) {
-  app.quit()
-} else {
-  app.on('second-instance', (_event, commandLine, _workingDirectory) => {
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
-    handleDeepLink(commandLine)
-
-    // If the old invisible app is running, and the user downloads and runs a NEW exe, handle the new filename
-    const exePath = commandLine.find(arg => arg.includes('RemoteAssist_Session_'));
-    if (exePath && win) {
-      const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
-      if (match) {
-        const sessionId = match[1];
-        const isElevatedRelaunch = commandLine.includes('--elevated-relaunch');
-
-        if (isElevatedRelaunch) {
-          win.hide();
-          setUACSecureDesktop(false);
-          win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
-          return;
-        }
-
-        // Present native prompt
-        const response = dialog.showMessageBoxSync(win, {
-          type: 'question',
-          buttons: ['Yes, Allow', 'No, Cancel'],
-          title: 'RemoteAssist Request',
-          message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
-          defaultId: 0,
-          cancelId: 1
-        });
-
-        if (response === 0) {
-          win.hide();
-          setUACSecureDesktop(false); // Enable technician UAC visibility
-          win.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
-        } else {
-          setUACSecureDesktop(true);
-          app.quit();
-        }
-      }
-    }
-  })
-
-  app.on('window-all-closed', () => {
-    setUACSecureDesktop(true);
-    if (process.platform !== 'darwin') {
-      app.quit()
-      win = null
-    }
-  })
-
-  // macOS specific deep linking
-  app.on('open-url', (event, url) => {
-    event.preventDefault();
-    handleDeepLink([url]);
-  })
-
-  app.whenReady().then(() => {
-    app.setAsDefaultProtocolClient('remoteassist')
-    createWindow()
-
-    // Handle initial deep link and custom filename on Windows
-    if (process.platform === 'win32') {
-      // Instead of an arbitrary timeout, wait for React to tell us it's ready
-      ipcMain.on('react-ready', () => {
-        handleDeepLink(process.argv)
-        
-        // Custom filename parsing for dynamic downloads (Zip extraction folder or Portable EXE)
-        const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
-        const match = exePath.match(/RemoteAssist_Session_(\d+)/i);
-        if (match && win) {
-          const sessionId = match[1];
-          const isElevatedRelaunch = process.argv.includes('--elevated-relaunch');
-          
-          if (isElevatedRelaunch) {
-            win!.hide();
-            setUACSecureDesktop(false);
-            win!.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
-            return;
-          }
-
-          // Small delay so UI doesn't visually flash before hiding
-          setTimeout(() => {
-            const response = dialog.showMessageBoxSync(win!, {
-              type: 'question',
-              buttons: ['Yes, Allow', 'No, Cancel'],
-              title: 'RemoteAssist Request',
-              message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
-              defaultId: 0,
-              cancelId: 1
-            });
-
-            if (response === 0) {
-              win!.hide(); // Hide completely
-              setUACSecureDesktop(false); // Enable technician UAC visibility
-              win!.webContents.send('handle-deep-link', { sessionId, name: 'Customer' });
-            } else {
-              setUACSecureDesktop(true);
-              app.quit();
-            }
-          }, 100);
-        }
-      });
-    }
-
+function registerIpcAndAppHandlers() {
   // Check for updates
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify()
@@ -272,7 +172,7 @@ if (!gotTheLock) {
 
   // Handle explicit quit from frontend (when session ends)
   ipcMain.on('quit-app', () => {
-    setUACSecureDesktop(true); // Restore Windows default security
+    restoreUACSecureDesktopSync(); // Restore Windows default security
     app.quit()
   })
 
@@ -307,7 +207,7 @@ if (!gotTheLock) {
 
   // Query administrator privilege status
   ipcMain.handle('is-admin', () => {
-    return isUACElevationActive();
+    return isRunningAsAdmin() || isUACElevationActive();
   });
 
   // Auto-approve screen sharing requests in Electron
@@ -381,54 +281,202 @@ if (!gotTheLock) {
     }
   })
 
-  // Zoho Assist-style remote session elevation
+  // Zoho Assist-grade seamless session elevation
   ipcMain.on('elevate-session', (_event, payload: { mode: 'credentials' | 'prompt', username?: string, password?: string, sessionCode?: string }) => {
     if (process.platform !== 'win32') return;
 
-    let psScript = '';
+    const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+    const sessionCode = payload?.sessionCode || '';
+    if (!sessionCode) {
+      console.error('[ELEVATION] No sessionCode provided for elevation');
+      return;
+    }
+
+    // Set registry policy so Secure Desktop doesn't black out screen during elevation
+    setUACSecureDesktop(false);
+
     if (payload?.mode === 'credentials' && payload.username && payload.password) {
       const safeUser = payload.username.replace(/'/g, "''");
       const safePass = payload.password.replace(/'/g, "''");
-      psScript = `
-        $regCmd = 'cmd.exe /c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f';
-        schtasks /create /tn "RemoteAssistElevate" /tr $regCmd /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
-        schtasks /run /tn "RemoteAssistElevate";
-        Start-Sleep -Milliseconds 1200;
-        schtasks /delete /tn "RemoteAssistElevate" /f;
-      `.trim();
+
+      console.log(`[ELEVATION] Validating credentials for user '${payload.username}'...`);
+      win?.webContents.send('elevation-progress', 'Validating administrator credentials...');
+
+      // 1. Validate credentials with a lightweight test scheduled task
+      const testCmd = `schtasks /create /tn "RemoteAssistAuthTest" /tr "cmd.exe /c exit 0" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f`;
+      
+      exec(`powershell.exe -NoProfile -WindowStyle Hidden -Command "${testCmd}"`, (err, _stdout, stderr) => {
+        const errorMsg = (stderr || err?.message || '').toLowerCase();
+        if (err || errorMsg.includes('error:') || errorMsg.includes('logon failure') || errorMsg.includes('access is denied')) {
+          console.warn('[ELEVATION] Credential verification failed:', stderr || err?.message);
+          try { execSync('schtasks /delete /tn "RemoteAssistAuthTest" /f', { stdio: 'ignore' }); } catch {}
+          win?.webContents.send('elevation-failed', 'Invalid administrator credentials. Please check your username and password.');
+          return;
+        }
+
+        // Clean up test task
+        try { execSync('schtasks /delete /tn "RemoteAssistAuthTest" /f', { stdio: 'ignore' }); } catch {}
+
+        console.log('[ELEVATION] Credentials verified! Relaunching RemoteAssist in Administrator mode...');
+        win?.webContents.send('elevation-progress', 'Credentials verified! Switching to Administrator Mode...');
+
+        // 2. Launch elevated app using verified credentials
+        const launchScript = `
+          $regCmd = 'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f';
+          schtasks /create /tn "RemoteAssistPolicy" /tr "cmd.exe /c $regCmd" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
+          schtasks /run /tn "RemoteAssistPolicy";
+          
+          $targetExe = '${exePath.replace(/'/g, "''")}';
+          $runCmd = "\`"$targetExe\`" --elevated-relaunch --session=${sessionCode}";
+          schtasks /create /tn "RemoteAssistElevateApp" /tr $runCmd /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
+          schtasks /run /tn "RemoteAssistElevateApp";
+          
+          Start-Sleep -Milliseconds 2500;
+          schtasks /delete /tn "RemoteAssistPolicy" /f;
+          schtasks /delete /tn "RemoteAssistElevateApp" /f;
+        `.trim();
+
+        spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', launchScript]);
+      });
+
     } else {
-      // Prompt customer with standard Windows UAC Consent to enable IT Remote Support desktop visibility
-      psScript = `
-        Start-Process cmd.exe -ArgumentList '/c reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f' -Verb RunAs -Wait;
+      // Mode: 'prompt' -> Prompt Customer for UAC Consent
+      console.log(`[ELEVATION] Prompting customer for UAC consent for session ${sessionCode}...`);
+      win?.webContents.send('elevation-progress', 'Prompting customer for Administrator consent...');
+
+      const promptScript = `
+        Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -ArgumentList '--elevated-relaunch --session=${sessionCode}' -Verb RunAs;
       `.trim();
+
+      const child = spawn('powershell.exe', [
+        '-NoProfile',
+        '-WindowStyle', 'Hidden',
+        '-Command',
+        promptScript
+      ]);
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          console.warn('[ELEVATION] Customer rejected UAC prompt or launch failed. Code:', code);
+          win?.webContents.send('elevation-failed', 'Customer declined the administrator elevation prompt.');
+        }
+      });
+    }
+  });
+}
+
+// -------------------------------------------------------------
+// Application Lifecycle & Single Instance Lock Coordination
+// -------------------------------------------------------------
+const isElevatedRelaunch = process.argv.includes('--elevated-relaunch');
+
+function startApplication() {
+  app.on('second-instance', (_event, commandLine) => {
+    // If an elevated instance has just been launched, the current unprivileged instance
+    // must gracefully yield the lock and exit so the elevated instance takes over.
+    if (commandLine.includes('--elevated-relaunch')) {
+      console.log('[ELEVATION] Elevated child instance spawned. Releasing lock and exiting standard instance.');
+      app.releaseSingleInstanceLock();
+      if (win) {
+        win.destroy();
+        win = null;
+      }
+      app.exit(0);
+      return;
     }
 
-    console.log(`[ELEVATION] Triggering elevation (mode: ${payload?.mode})...`);
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
 
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-WindowStyle', 'Hidden',
-      '-Command',
-      psScript
-    ]);
-
-    let errOutput = '';
-    child.stderr.on('data', (d) => {
-      errOutput += d.toString();
-    });
-
-    child.on('close', (code) => {
-      console.log(`[ELEVATION] Command finished with code ${code}. Checking UAC policy...`);
-      setTimeout(() => {
-        const isElevated = isUACElevationActive();
-        if (isElevated) {
-          console.log('[ELEVATION] Success: PromptOnSecureDesktop is now 0. Notifying renderer...');
-          win?.webContents.send('admin-status-changed', true);
-        } else {
-          console.warn('[ELEVATION] Elevation policy check returned false. Code:', code, errOutput);
-        }
-      }, 500);
-    });
+    const sessionInfo = parseSessionLaunchInfo(commandLine);
+    if (sessionInfo && win) {
+      win.webContents.send('handle-deep-link', sessionInfo);
+    }
   });
-})
+
+  app.on('window-all-closed', () => {
+    restoreUACSecureDesktopSync();
+    if (process.platform !== 'darwin') {
+      app.quit();
+      win = null;
+    }
+  });
+
+  // macOS specific deep linking
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    const sessionInfo = parseSessionLaunchInfo([url]);
+    if (sessionInfo && win) {
+      win.webContents.send('handle-deep-link', sessionInfo);
+    }
+  });
+
+  app.whenReady().then(() => {
+    app.setAsDefaultProtocolClient('remoteassist');
+    createWindow();
+
+    if (process.platform === 'win32') {
+      ipcMain.on('react-ready', () => {
+        const sessionInfo = parseSessionLaunchInfo(process.argv);
+        if (sessionInfo && win) {
+          const isElevated = process.argv.includes('--elevated-relaunch');
+          if (isElevated) {
+            win.hide();
+            setUACSecureDesktop(false);
+            win.webContents.send('handle-deep-link', sessionInfo);
+            return;
+          }
+
+          // Initial launch confirmation prompt for customer
+          setTimeout(() => {
+            const response = dialog.showMessageBoxSync(win!, {
+              type: 'question',
+              buttons: ['Yes, Allow', 'No, Cancel'],
+              title: 'RemoteAssist Request',
+              message: 'The technician is requesting permission to view and control your screen. Do you want to allow this?',
+              defaultId: 0,
+              cancelId: 1
+            });
+
+            if (response === 0) {
+              win!.hide();
+              setUACSecureDesktop(false);
+              win!.webContents.send('handle-deep-link', sessionInfo);
+            } else {
+              setUACSecureDesktop(true);
+              app.quit();
+            }
+          }, 100);
+        }
+      });
+    }
+
+    registerIpcAndAppHandlers();
+  });
+}
+
+// Coordinate lock acquisition (wait for predecessor to yield if this is an elevated relaunch)
+let gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock && isElevatedRelaunch) {
+  // Polling lock acquisition: unprivileged instance received second-instance and is exiting
+  let attempts = 0;
+  const pollLock = setInterval(() => {
+    attempts++;
+    gotTheLock = app.requestSingleInstanceLock();
+    if (gotTheLock) {
+      clearInterval(pollLock);
+      startApplication();
+    } else if (attempts > 15) { // 15 * 200ms = 3000ms max wait
+      clearInterval(pollLock);
+      console.error('[ELEVATION] Timed out waiting to acquire single instance lock.');
+      app.quit();
+    }
+  }, 200);
+} else if (!gotTheLock) {
+  app.quit();
+} else {
+  startApplication();
 }

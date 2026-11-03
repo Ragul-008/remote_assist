@@ -73,6 +73,15 @@ const SupportRoom = () => {
             sessionCode: sessionCode,
           });
         }
+      } else if (data.type === 'admin-status') {
+        const adminActive = Boolean(data.payload?.isAdmin);
+        if (adminActive) {
+          toast.success('Administrator Mode Activated! Full UAC & elevated app control enabled.', { icon: '🛡️', duration: 4500 });
+        }
+      } else if (data.type === 'elevation-progress') {
+        toast(data.message || 'Processing elevation...', { icon: '⏳' });
+      } else if (data.type === 'elevation-failed') {
+        toast.error(data.message || 'Elevation failed', { duration: 5000 });
       } else {
         handleSignalingData(data);
       }
@@ -132,7 +141,14 @@ const SupportRoom = () => {
   };
 
   const handleSignalingData = async (data: any) => {
-    if (!peerConnectionRef.current) {
+    if (data.type === 'offer') {
+      if (peerConnectionRef.current) {
+        try {
+          peerConnectionRef.current.close();
+        } catch {}
+      }
+      createPeerConnection();
+    } else if (!peerConnectionRef.current) {
       createPeerConnection();
     }
     const pc = peerConnectionRef.current!;

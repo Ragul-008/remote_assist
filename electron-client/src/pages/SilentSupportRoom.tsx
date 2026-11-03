@@ -83,14 +83,36 @@ const SilentSupportRoom = () => {
       }
     };
 
+    const handleElevationProgress = (_event: any, message: string) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'elevation-progress',
+          message
+        }));
+      }
+    };
+
+    const handleElevationFailed = (_event: any, message: string) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'elevation-failed',
+          message
+        }));
+      }
+    };
+
     if ((window as any).ipcRenderer) {
       (window as any).ipcRenderer.on('admin-status-changed', handleAdminStatusChanged);
+      (window as any).ipcRenderer.on('elevation-progress', handleElevationProgress);
+      (window as any).ipcRenderer.on('elevation-failed', handleElevationFailed);
     }
 
     return () => {
       stopScreenShare();
       if ((window as any).ipcRenderer) {
         (window as any).ipcRenderer.off('admin-status-changed', handleAdminStatusChanged);
+        (window as any).ipcRenderer.off('elevation-progress', handleElevationProgress);
+        (window as any).ipcRenderer.off('elevation-failed', handleElevationFailed);
         (window as any).ipcRenderer.send('session-active', false);
       }
       if (peerConnectionRef.current) peerConnectionRef.current.close();
