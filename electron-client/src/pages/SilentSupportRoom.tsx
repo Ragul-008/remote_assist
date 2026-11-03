@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ShieldCheck, PhoneOff } from 'lucide-react';
+import { ShieldCheck, PhoneOff, Loader2 } from 'lucide-react';
 
 const SilentSupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
+  const [isConnected, setIsConnected] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -18,6 +19,11 @@ const SilentSupportRoom = () => {
   };
 
   useEffect(() => {
+    // Dock as floating widget immediately on mount so customer sees the window right away
+    if ((window as any).ipcRenderer) {
+      (window as any).ipcRenderer.send('set-floating-widget');
+    }
+
     // Setup WebSocket with proper secure wss/ws protocol
     let wsUrl = 'wss://remote-assist-y8ot.onrender.com';
     if (import.meta.env.VITE_API_URL) {
@@ -34,6 +40,7 @@ const SilentSupportRoom = () => {
     wsRef.current = socket;
     
     socket.onopen = async () => {
+      setIsConnected(true);
       // Start sharing screen immediately upon connection
       startScreenShare();
       if ((window as any).ipcRenderer) {
@@ -49,6 +56,14 @@ const SilentSupportRoom = () => {
           // Ignore if is-admin is not supported
         }
       }
+    };
+
+    socket.onclose = () => {
+      setIsConnected(false);
+    };
+
+    socket.onerror = () => {
+      setIsConnected(false);
     };
 
     socket.onmessage = async (event) => {
@@ -214,14 +229,24 @@ const SilentSupportRoom = () => {
       style={{ WebkitAppRegion: 'drag' } as any}
     >
       <div className="flex items-center gap-3">
-        <span className="relative flex h-3 w-3">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-        </span>
+        {isConnected ? (
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+        ) : (
+          <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+        )}
         <div>
           <div className="flex items-center gap-1.5 text-xs font-bold tracking-wide text-gray-200">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Remote Support Active</span>
+            {isConnected ? (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Remote Support Active</span>
+              </>
+            ) : (
+              <span>Connecting to session...</span>
+            )}
           </div>
           <div className="text-[11px] text-gray-400 font-mono">
             Session: #{sessionCode}

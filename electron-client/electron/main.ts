@@ -132,7 +132,7 @@ function createWindow() {
     transparent: isSessionLaunch,
     hasShadow: !isSessionLaunch,
     autoHideMenuBar: true,
-    show: !isSessionLaunch,
+    show: true, // Always show immediately so the user knows the application opened
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -385,6 +385,7 @@ function startApplication() {
 
     if (win) {
       if (win.isMinimized()) win.restore();
+      win.show();
       win.focus();
     }
 
@@ -421,7 +422,6 @@ function startApplication() {
         if (sessionInfo && win) {
           const isElevated = process.argv.includes('--elevated-relaunch');
           if (isElevated) {
-            win.hide();
             setUACSecureDesktop(false);
             win.webContents.send('handle-deep-link', sessionInfo);
             return;
@@ -439,7 +439,6 @@ function startApplication() {
             });
 
             if (response === 0) {
-              win!.hide();
               setUACSecureDesktop(false);
               win!.webContents.send('handle-deep-link', sessionInfo);
             } else {
