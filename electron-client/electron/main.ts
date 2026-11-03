@@ -302,8 +302,8 @@ function registerIpcAndAppHandlers() {
       console.log(`[ELEVATION] Validating credentials for user '${payload.username}'...`);
       win?.webContents.send('elevation-progress', 'Validating administrator credentials...');
 
-      // 1. Validate credentials with a lightweight test scheduled task
-      const testCmd = `schtasks /create /tn "RemoteAssistAuthTest" /tr "cmd.exe /c exit 0" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f`;
+      // 1. Validate credentials with a lightweight test scheduled task (whoami.exe has no spaces)
+      const testCmd = `schtasks /create /tn "RemoteAssistAuthTest" /tr "whoami.exe" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f`;
       
       exec(`powershell.exe -NoProfile -WindowStyle Hidden -Command "${testCmd}"`, (err, _stdout, stderr) => {
         const errorMsg = (stderr || err?.message || '').toLowerCase();
@@ -320,20 +320,18 @@ function registerIpcAndAppHandlers() {
         console.log('[ELEVATION] Credentials verified! Relaunching RemoteAssist in Administrator mode...');
         win?.webContents.send('elevation-progress', 'Credentials verified! Switching to Administrator Mode...');
 
-        // 2. Launch elevated app using verified credentials
+        // 2. Launch elevated app using a temporary wrapper batch file (bypasses Windows CLI quote parsing quirks)
         const launchScript = `
-          $regCmd = 'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f';
-          schtasks /create /tn "RemoteAssistPolicy" /tr "cmd.exe /c $regCmd" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
-          schtasks /run /tn "RemoteAssistPolicy";
-          
           $targetExe = '${exePath.replace(/'/g, "''")}';
-          $runCmd = "\`"$targetExe\`" --elevated-relaunch --session=${sessionCode}";
-          schtasks /create /tn "RemoteAssistElevateApp" /tr $runCmd /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
+          $launchBat = "$env:TEMP\\RemoteAssist_Elevate_${sessionCode}.cmd";
+          "@echo off\`r\`nreg add \`"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\`" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f\`r\`nstart \`"\`" \`"$targetExe\`" --elevated-relaunch --session=${sessionCode}" | Out-File -FilePath $launchBat -Encoding ascii;
+          
+          schtasks /create /tn "RemoteAssistElevateApp" /tr "\`"$launchBat\`"" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
           schtasks /run /tn "RemoteAssistElevateApp";
           
           Start-Sleep -Milliseconds 2500;
-          schtasks /delete /tn "RemoteAssistPolicy" /f;
           schtasks /delete /tn "RemoteAssistElevateApp" /f;
+          Remove-Item -Path $launchBat -Force -ErrorAction SilentlyContinue;
         `.trim();
 
         spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', launchScript]);
