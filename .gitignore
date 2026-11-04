@@ -23,6 +23,9 @@ env/
 .env.production.local
 .env.*
 
+# Reverse Engineering Reference
+Reverse-Engineering/
+
 # OS
 .DS_Store
 Thumbs.db

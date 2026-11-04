@@ -40,6 +40,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/join" element={<JoinSession />} />
           <Route path="/join/:sessionId" element={<JoinSession />} />
           
           {/* Dashboard Routes */}

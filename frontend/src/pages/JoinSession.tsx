@@ -1,119 +1,220 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, MonitorDown } from 'lucide-react';
+import { Loader2, MonitorDown, Download, CheckCircle2, ShieldCheck, ArrowRight, HelpCircle, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const JoinSession = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { sessionId: paramSessionId } = useParams<{ sessionId: string }>();
+  const [sessionCode, setSessionCode] = useState(paramSessionId || '');
   const [name, setName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
+  const [hasDownloaded, setHasDownloaded] = useState(false);
 
-  const handleJoin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  useEffect(() => {
+    if (paramSessionId) {
+      setSessionCode(paramSessionId);
+    }
+  }, [paramSessionId]);
+
+  const triggerDownload = (targetCode: string) => {
+    const cleanCode = targetCode.trim();
+    if (!cleanCode) return;
 
     setIsJoining(true);
 
-    // Hit the backend API to dynamically download the custom named .exe
-    const downloadUrl = `https://remote-assist-y8ot.onrender.com/api/sessions/${sessionId}/download`;
-    
+    const downloadUrl = `https://remote-assist-y8ot.onrender.com/api/sessions/${cleanCode}/download`;
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `RemoteAssist_Session_${sessionId}.exe`; // Fallback hint
+    a.download = `RemoteAssist_Session_${cleanCode}.exe`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 
-    // Wait a little bit then reset and show instruction
     setTimeout(() => {
       setIsJoining(false);
-      alert("Downloading your custom support app!\n\nWhen it finishes downloading, simply open the file and it will connect instantly.");
-    }, 2000);
+      setHasDownloaded(true);
+    }, 1200);
+  };
+
+  const handleJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sessionCode.trim()) return;
+    triggerDownload(sessionCode);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
-            <MonitorDown className="w-8 h-8 text-white" />
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* Background glow effects */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10 text-center">
+        <div className="inline-flex justify-center items-center gap-3 mb-4">
+          <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/25">
+            <MonitorDown className="w-7 h-7 text-white" />
           </div>
-          <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">
             RemoteAssist
-          </h2>
+          </h1>
         </div>
-        <h2 className="mt-6 text-center text-2xl font-bold text-gray-900 dark:text-white">
-          Join Remote Support Session
-        </h2>
+        <p className="text-slate-400 text-sm">
+          Secure, on-demand remote support for your PC
+        </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-lg relative z-10">
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-gray-800 py-8 px-4 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100 dark:border-gray-700"
+          className="bg-slate-800/90 backdrop-blur-md py-8 px-6 shadow-2xl rounded-2xl sm:px-10 border border-slate-700"
         >
-          <form className="space-y-6" onSubmit={handleJoin}>
-            <div>
-              <label htmlFor="sessionId" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Session ID
-              </label>
-              <div className="mt-1">
+          {!hasDownloaded ? (
+            <form className="space-y-5" onSubmit={handleJoin}>
+              <div>
+                <label htmlFor="sessionCode" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  9-Digit Session Key
+                </label>
                 <input
-                  id="sessionId"
-                  name="sessionId"
+                  id="sessionCode"
+                  name="sessionCode"
                   type="text"
-                  value={sessionId || ''}
-                  readOnly
-                  className="appearance-none block w-full px-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 sm:text-lg tracking-widest font-mono focus:outline-none"
+                  required
+                  maxLength={15}
+                  value={sessionCode}
+                  onChange={(e) => setSessionCode(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="e.g. 157079689"
+                  className="appearance-none block w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl shadow-inner text-white font-mono text-xl tracking-widest placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                 />
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Name
-              </label>
-              <div className="mt-1">
+              <div>
+                <label htmlFor="name" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Your Name (Optional)
+                </label>
                 <input
                   id="name"
                   name="name"
                   type="text"
-                  required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your name"
-                  className="appearance-none block w-full px-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-md dark:bg-gray-700 dark:text-white transition-colors"
+                  placeholder="e.g. Alex"
+                  className="appearance-none block w-full px-4 py-2.5 bg-slate-900 border border-slate-600 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-sm"
                 />
               </div>
-            </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={isJoining || !name.trim()}
-                className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-70 transition-colors uppercase tracking-wider"
-              >
-                {isJoining ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-                Join Session
-              </button>
-            </div>
-          </form>
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isJoining || !sessionCode.trim()}
+                  className="w-full flex justify-center items-center gap-2.5 py-3.5 px-5 rounded-xl shadow-lg shadow-indigo-600/30 text-base font-bold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {isJoining ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Preparing Download...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Join Support Session</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </>
+                  )}
+                </button>
+              </div>
 
-          <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Join session right from your desktop
-            </p>
-            <a 
-              href="https://github.com/Ragul-008/remote_assist/releases/latest" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="mt-2 inline-block text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-            >
-              Download quick support
-            </a>
-          </div>
+              <div className="pt-4 border-t border-slate-700/60 flex items-center justify-center gap-2 text-xs text-slate-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Zero installation required. Portable one-time session.</span>
+              </div>
+            </form>
+          ) : (
+            /* Post-Download Zoho Assist-Style 3-Step Instruction Card */
+            <div className="space-y-6">
+              <div className="text-center pb-2">
+                <div className="inline-flex p-3 bg-emerald-500/10 text-emerald-400 rounded-full mb-3 border border-emerald-500/20">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-bold text-white">Your Support App is Ready!</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Follow these 3 simple steps to connect with your technician:
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-slate-900/80 border border-slate-700">
+                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    1
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-white">Locate the downloaded file</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Check your browser downloads or Downloads folder for:
+                    </p>
+                    <code className="inline-block mt-1 bg-slate-800 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono border border-slate-700">
+                      RemoteAssist_Session_{sessionCode}.exe
+                    </code>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-slate-900/80 border border-slate-700">
+                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    2
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-white">Double-click to open</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      The lightweight app launches immediately without installing anything.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3.5 p-3.5 rounded-xl bg-slate-900/80 border border-slate-700">
+                  <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    3
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-white">Instant Connection</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      The floating support badge will appear and your technician can assist you.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Windows SmartScreen Help Box */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-200/90 flex items-start gap-2.5">
+                <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-amber-300">If Windows SmartScreen appears:</span>
+                  <p className="mt-0.5">
+                    Click <b>&quot;More info&quot;</b> and then click <b>&quot;Run anyway&quot;</b> to start the portable support session.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between text-xs text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => triggerDownload(sessionCode)}
+                  className="flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Didn&apos;t download? Click here</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHasDownloaded(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  Change Session Key
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
+      </div>
+
+      <div className="mt-8 text-center text-xs text-slate-500 relative z-10">
+        <p>RemoteAssist &copy; {new Date().getFullYear()} &middot; End-to-End Encrypted WebRTC Support</p>
       </div>
     </div>
   );
