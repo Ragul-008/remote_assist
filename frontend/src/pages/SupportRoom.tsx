@@ -22,7 +22,7 @@ const SupportRoom = () => {
 
   // Zoho Assist-style remote session elevation state
   const [showElevateModal, setShowElevateModal] = useState(false);
-  const [elevateMode, setElevateMode] = useState<'credentials' | 'prompt'>('credentials');
+  const [elevateMode, setElevateMode] = useState<'credentials' | 'prompt'>('prompt');
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isElevating, setIsElevating] = useState(false);
@@ -480,6 +480,35 @@ const SupportRoom = () => {
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Elevation Method</label>
                 
                 <div 
+                  onClick={() => setElevateMode('prompt')}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    elevateMode === 'prompt' 
+                      ? 'border-indigo-500 bg-indigo-500/10' 
+                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="radio" 
+                      name="elevateMode" 
+                      checked={elevateMode === 'prompt'} 
+                      onChange={() => setElevateMode('prompt')}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>Prompt for Windows Native UAC (Recommended)</span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">Universal</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Displays the standard Windows UAC dialog. Works with <b>Azure AD / Office 365, PIN, Windows Hello, and Domain accounts</b>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div 
                   onClick={() => setElevateMode('credentials')}
                   className={`p-3 rounded-lg border cursor-pointer transition-all ${
                     elevateMode === 'credentials' 
@@ -498,38 +527,10 @@ const SupportRoom = () => {
                     <div>
                       <div className="flex items-center gap-1.5 font-medium text-sm text-white">
                         <KeyRound className="w-4 h-4 text-indigo-400" />
-                        <span>Authenticate with IT Admin Credentials</span>
+                        <span>Silent IT Admin Credentials (Local / Domain)</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        The remote app relaunches silently with your admin credentials. Customer is not asked for passwords.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setElevateMode('prompt')}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                    elevateMode === 'prompt' 
-                      ? 'border-indigo-500 bg-indigo-500/10' 
-                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <input 
-                      type="radio" 
-                      name="elevateMode" 
-                      checked={elevateMode === 'prompt'} 
-                      onChange={() => setElevateMode('prompt')}
-                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <div>
-                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
-                        <ShieldCheck className="w-4 h-4 text-amber-400" />
-                        <span>Prompt Customer for UAC Consent</span>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Displays a standard Windows UAC prompt on the customer's screen for them to click "Yes".
+                        Relaunches silently using local admin (e.g. <code>.\Administrator</code>) or on-premise AD (<code>DOMAIN\Admin</code>). <i>Note: Azure AD accounts cannot use this mode.</i>
                       </p>
                     </div>
                   </div>
@@ -540,14 +541,14 @@ const SupportRoom = () => {
                 <div className="p-3.5 bg-gray-900/60 border border-gray-700 rounded-lg space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">
-                      IT Admin Username (e.g. .\Administrator or Domain\User)
+                      IT Admin Username (e.g. .\Administrator or DOMAIN\User)
                     </label>
                     <input
                       type="text"
                       required={elevateMode === 'credentials'}
                       value={adminUsername}
                       onChange={(e) => setAdminUsername(e.target.value)}
-                      placeholder="Administrator"
+                      placeholder=".\Administrator"
                       className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
                     />
                   </div>

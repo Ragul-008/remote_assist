@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen, Menu } from 'electron'
 import path from 'node:path'
+import fs from 'node:fs'
 import { exec, execSync, spawn } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 
@@ -296,21 +297,46 @@ function registerIpcAndAppHandlers() {
     setUACSecureDesktop(false);
 
     if (payload?.mode === 'credentials' && payload.username && payload.password) {
-      const safeUser = payload.username.replace(/'/g, "''");
-      const safePass = payload.password.replace(/'/g, "''");
+      let targetUser = payload.username.trim();
+      // If user typed a plain username without domain or dot, suggest local machine format .\user
+      if (!targetUser.includes('\\') && !targetUser.includes('@')) {
+        targetUser = `.\\${targetUser}`;
+      }
 
-      console.log(`[ELEVATION] Validating credentials for user '${payload.username}'...`);
+      console.log(`[ELEVATION] Validating credentials for user '${targetUser}'...`);
       win?.webContents.send('elevation-progress', 'Validating administrator credentials...');
 
-      // 1. Validate credentials with a lightweight test scheduled task (whoami.exe has no spaces)
-      const testCmd = `schtasks /create /tn "RemoteAssistAuthTest" /tr "whoami.exe" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f`;
-      
-      exec(`powershell.exe -NoProfile -WindowStyle Hidden -Command "${testCmd}"`, (err, _stdout, stderr) => {
-        const errorMsg = (stderr || err?.message || '').toLowerCase();
-        if (err || errorMsg.includes('error:') || errorMsg.includes('logon failure') || errorMsg.includes('access is denied')) {
-          console.warn('[ELEVATION] Credential verification failed:', stderr || err?.message);
+      // Run schtasks directly to prevent PowerShell variable expansion of $ in passwords
+      const authChild = spawn('schtasks.exe', [
+        '/create',
+        '/tn', 'RemoteAssistAuthTest',
+        '/tr', 'whoami.exe',
+        '/sc', 'once',
+        '/st', '00:00',
+        '/ru', targetUser,
+        '/rp', payload.password,
+        '/rl', 'HIGHEST',
+        '/f'
+      ], { windowsHide: true });
+
+      let stderr = '';
+      let stdout = '';
+      authChild.stdout?.on('data', (d) => { stdout += d.toString(); });
+      authChild.stderr?.on('data', (d) => { stderr += d.toString(); });
+
+      authChild.on('close', (code) => {
+        const fullOutput = (stdout + ' ' + stderr).toLowerCase();
+        if (code !== 0 || fullOutput.includes('error:') || fullOutput.includes('logon failure') || fullOutput.includes('access is denied')) {
+          console.warn('[ELEVATION] Credential verification failed. Code:', code, 'Output:', fullOutput);
           try { execSync('schtasks /delete /tn "RemoteAssistAuthTest" /f', { stdio: 'ignore' }); } catch {}
-          win?.webContents.send('elevation-failed', 'Invalid administrator credentials. Please check your username and password.');
+
+          if (fullOutput.includes('network address is invalid') || payload.username.toLowerCase().includes('azuread') || payload.username.includes('@')) {
+            win?.webContents.send('elevation-failed', 'Windows Task Scheduler cannot authenticate Azure AD / Office 365 accounts with passwords. Please select "Prompt Customer for UAC Consent" above to elevate via Windows native UAC.');
+          } else if (fullOutput.includes('access is denied')) {
+            win?.webContents.send('elevation-failed', 'Standard user permissions block creating elevated tasks. Please select "Prompt Customer for UAC Consent" above.');
+          } else {
+            win?.webContents.send('elevation-failed', 'Invalid administrator credentials. For local admin, use format .\\Username. If using Azure AD / Office 365, select "Prompt Customer for UAC Consent".');
+          }
           return;
         }
 
@@ -321,20 +347,35 @@ function registerIpcAndAppHandlers() {
         win?.webContents.send('elevation-progress', 'Credentials verified! Switching to Administrator Mode...');
 
         // 2. Launch elevated app using a temporary wrapper batch file (bypasses Windows CLI quote parsing quirks)
-        const launchScript = `
-          $targetExe = '${exePath.replace(/'/g, "''")}';
-          $launchBat = "$env:TEMP\\RemoteAssist_Elevate_${sessionCode}.cmd";
-          "@echo off\`r\`nreg add \`"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\`" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f\`r\`nstart \`"\`" \`"$targetExe\`" --elevated-relaunch --session=${sessionCode}" | Out-File -FilePath $launchBat -Encoding ascii;
-          
-          schtasks /create /tn "RemoteAssistElevateApp" /tr "\`"$launchBat\`"" /sc once /st 00:00 /ru '${safeUser}' /rp '${safePass}' /rl HIGHEST /f;
-          schtasks /run /tn "RemoteAssistElevateApp";
-          
-          Start-Sleep -Milliseconds 2500;
-          schtasks /delete /tn "RemoteAssistElevateApp" /f;
-          Remove-Item -Path $launchBat -Force -ErrorAction SilentlyContinue;
-        `.trim();
+        const launchBat = path.join(process.env.TEMP || 'C:\\Windows\\Temp', `RemoteAssist_Elevate_${sessionCode}.cmd`);
+        const batContent = `@echo off\r\nreg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f\r\nstart "" "${exePath}" --elevated-relaunch --session=${sessionCode}\r\n`;
 
-        spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', launchScript]);
+        try {
+          fs.writeFileSync(launchBat, batContent, { encoding: 'ascii' });
+        } catch (e) {
+          console.error('[ELEVATION] Failed to write launch script:', e);
+        }
+
+        const runElevateChild = spawn('schtasks.exe', [
+          '/create',
+          '/tn', 'RemoteAssistElevateApp',
+          '/tr', `"${launchBat}"`,
+          '/sc', 'once',
+          '/st', '00:00',
+          '/ru', targetUser,
+          '/rp', payload.password,
+          '/rl', 'HIGHEST',
+          '/f'
+        ], { windowsHide: true });
+
+        runElevateChild.on('close', () => {
+          exec('schtasks /run /tn "RemoteAssistElevateApp"', () => {
+            setTimeout(() => {
+              try { execSync('schtasks /delete /tn "RemoteAssistElevateApp" /f', { stdio: 'ignore' }); } catch {}
+              try { fs.unlinkSync(launchBat); } catch {}
+            }, 3000);
+          });
+        });
       });
 
     } else {
