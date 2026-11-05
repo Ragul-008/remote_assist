@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ShieldCheck, PhoneOff, Loader2, MousePointer, PauseCircle, PlayCircle, Download } from 'lucide-react';
+import { ShieldCheck, PhoneOff, Loader2, MousePointer, PlayCircle, Download } from 'lucide-react';
 
 const SilentSupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
@@ -297,36 +297,36 @@ const SilentSupportRoom = () => {
 
   return (
     <div 
-      className="w-full h-full box-border flex items-center justify-between px-4 py-2 bg-gray-900/95 text-white backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl select-none"
+      className="w-full h-full box-border flex items-center justify-between px-4 py-2 bg-slate-900/95 text-white backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl select-none"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
       <div className="flex items-center gap-3">
         {isConnected ? (
           <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
           </span>
         ) : (
-          <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+          <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
         )}
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-bold tracking-wide text-gray-200">
+          <div className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-100">
             {isConnected ? (
               <>
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Remote Support Active</span>
                 {lastReceivedFile && (
-                  <span className="flex items-center gap-1 text-[10px] text-indigo-300 bg-indigo-900/80 px-1.5 py-0.5 rounded">
+                  <span className="flex items-center gap-1 text-[10px] text-blue-300 bg-blue-950/80 border border-blue-800/60 px-1.5 py-0.5 rounded-md">
                     <Download className="w-2.5 h-2.5" /> Saved: {lastReceivedFile}
                   </span>
                 )}
               </>
             ) : (
-              <span>Connecting to session...</span>
+              <span className="text-slate-300">Connecting to session...</span>
             )}
           </div>
-          <div className="text-[11px] text-gray-400 font-mono">
-            Session: #{sessionCode}
+          <div className="text-[11px] text-slate-400 font-mono tracking-wider">
+            Session: #{sessionCode ? sessionCode.replace(/(\d{3})(?=\d)/g, '$1 ') : '---'}
           </div>
         </div>
       </div>
@@ -335,21 +335,25 @@ const SilentSupportRoom = () => {
         <button
           type="button"
           onClick={togglePauseControl}
-          className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
             isControlPaused 
-              ? 'bg-amber-600/90 text-white border-amber-500' 
-              : 'bg-gray-800 text-gray-300 hover:text-white border-gray-700 hover:bg-gray-700'
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30' 
+              : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
           }`}
           title={isControlPaused ? "Click to resume technician mouse and keyboard control" : "Click to temporarily pause technician control"}
         >
-          {isControlPaused ? <PlayCircle className="w-3 h-3 text-white" /> : <PauseCircle className="w-3 h-3 text-amber-400" />}
-          <span>{isControlPaused ? 'Resume Control' : 'Pause Control'}</span>
+          {isControlPaused ? (
+            <PlayCircle className="w-3.5 h-3.5 text-amber-400" />
+          ) : (
+            <MousePointer className="w-3.5 h-3.5 text-emerald-400" />
+          )}
+          <span>{isControlPaused ? 'Resume Control' : 'Control Active'}</span>
         </button>
 
         <button
           type="button"
           onClick={handleDisconnect}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-md transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-sm hover:shadow transition-all cursor-pointer"
           title="Stop screen sharing and disconnect technician"
         >
           <PhoneOff className="w-3.5 h-3.5" />

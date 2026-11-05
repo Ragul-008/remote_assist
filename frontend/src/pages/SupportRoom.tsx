@@ -565,25 +565,27 @@ const SupportRoom = () => {
         {/* Left: Branding & Session Info */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Monitor className="w-5 h-5 text-indigo-400" />
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-xs">
+              <Monitor className="w-4 h-4" />
+            </div>
             <span className="font-bold text-sm tracking-tight hidden sm:inline text-white">RemoteAssist</span>
           </div>
 
-          <div className="h-4 w-px bg-slate-700 hidden sm:block" />
+          <div className="h-4 w-px bg-slate-800 hidden sm:block" />
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400">Key:</span>
-            <span className="font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700 text-indigo-300 font-bold">
-              {sessionCode}
+            <span className="text-slate-400">Session:</span>
+            <span className="font-mono bg-slate-800/90 px-2.5 py-0.5 rounded-md border border-slate-700/80 text-blue-400 font-bold tracking-wider">
+              {sessionCode ? sessionCode.replace(/(\d{3})(?=\d)/g, '$1 ') : '---'}
             </span>
             <div className="flex items-center gap-1.5 ml-1 text-slate-400 font-mono">
               <Clock className="w-3.5 h-3.5 text-slate-500" />
               <span>{formatDuration(sessionSeconds)}</span>
             </div>
             {isConnected ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 font-semibold">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live
+                Live P2P
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 font-medium">
@@ -596,13 +598,13 @@ const SupportRoom = () => {
 
         {/* Center: Zoho Assist Remote Controls Toolbar (For Technician) */}
         {user?.role === 'technician' && (
-          <div className="hidden lg:flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700 text-xs">
+          <div className="hidden lg:flex items-center gap-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 text-xs shadow-xs">
             {/* Display Selector */}
             {availableScreens.length > 1 && (
               <select
                 value={selectedScreenId}
                 onChange={(e) => handleSelectScreen(e.target.value)}
-                className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none"
+                className="bg-slate-900 text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
               >
                 {availableScreens.map(scr => (
                   <option key={scr.id} value={scr.id}>{scr.name}</option>
@@ -613,8 +615,8 @@ const SupportRoom = () => {
             {/* Screen Scale Mode */}
             <button
               onClick={() => setScreenFitMode(prev => prev === 'fit' ? 'original' : 'fit')}
-              className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                screenFitMode === 'fit' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-700'
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                screenFitMode === 'fit' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-300 hover:bg-slate-700/60'
               }`}
               title="Toggle Fit to Screen / Original 100%"
             >
@@ -624,8 +626,8 @@ const SupportRoom = () => {
             {/* View Only vs Full Control */}
             <button
               onClick={() => setIsControlEnabled(!isControlEnabled)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors ${
-                isControlEnabled ? 'bg-slate-700 text-emerald-400' : 'bg-amber-600/80 text-white'
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                isControlEnabled ? 'bg-slate-700/80 text-emerald-400' : 'bg-amber-600 text-white shadow-xs'
               }`}
               title={isControlEnabled ? "Control is Enabled" : "View Only Mode"}
             >
@@ -636,7 +638,7 @@ const SupportRoom = () => {
             {/* Special Keys */}
             <button
               onClick={() => sendSpecialKey('cad')}
-              className="px-2.5 py-1 rounded text-slate-300 hover:bg-slate-700 font-mono text-[11px] hover:text-white"
+              className="px-2.5 py-1 rounded-lg text-slate-300 hover:bg-slate-700/60 font-mono text-[11px] hover:text-white cursor-pointer transition-colors"
               title="Send Ctrl+Alt+Del (Opens Security & Task Manager)"
             >
               Ctrl+Alt+Del
@@ -645,18 +647,18 @@ const SupportRoom = () => {
             {/* File Transfer Quick Button */}
             <button
               onClick={() => setShowFileModal(true)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-300 hover:bg-slate-700 hover:text-white"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-300 hover:bg-slate-700/60 hover:text-white cursor-pointer transition-colors"
               title="Send files to remote computer"
             >
-              <FileUp className="w-3.5 h-3.5 text-indigo-400" />
+              <FileUp className="w-3.5 h-3.5 text-blue-400" />
               <span>Send File</span>
             </button>
 
             {/* Privacy Screen / Blank Remote Display */}
             <button
               onClick={togglePrivacyCurtain}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
-                isPrivacyCurtainOn ? 'bg-amber-600 text-white font-medium shadow-sm' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                isPrivacyCurtainOn ? 'bg-amber-600 text-white font-medium shadow-xs' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
               }`}
               title={isPrivacyCurtainOn ? "Privacy Screen is ACTIVE (Customer display is blanked)" : "Blank remote customer display for privacy"}
             >
@@ -782,8 +784,8 @@ const SupportRoom = () => {
           <div className="h-12 border-b border-slate-800 flex items-center px-2 bg-slate-900/80">
             <button
               onClick={() => setActiveSidebarTab('chat')}
-              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
-                activeSidebarTab === 'chat' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeSidebarTab === 'chat' ? 'bg-slate-800 text-blue-400 shadow-xs' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
@@ -792,8 +794,8 @@ const SupportRoom = () => {
 
             <button
               onClick={() => setActiveSidebarTab('files')}
-              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
-                activeSidebarTab === 'files' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeSidebarTab === 'files' ? 'bg-slate-800 text-blue-400 shadow-xs' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Folder className="w-3.5 h-3.5" />
@@ -803,8 +805,8 @@ const SupportRoom = () => {
             {user?.role === 'technician' && (
               <button
                 onClick={() => setActiveSidebarTab('notes')}
-                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
-                  activeSidebarTab === 'notes' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeSidebarTab === 'notes' ? 'bg-slate-800 text-blue-400 shadow-xs' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
@@ -834,7 +836,7 @@ const SupportRoom = () => {
                         </div>
                         <div className={`px-3 py-2 rounded-xl max-w-[85%] text-xs leading-relaxed ${
                           isMe 
-                            ? 'bg-indigo-600 text-white rounded-tr-none shadow-sm' 
+                            ? 'bg-blue-600 text-white rounded-tr-none shadow-xs' 
                             : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'
                         }`}>
                           {msg.text}
@@ -854,12 +856,12 @@ const SupportRoom = () => {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Type message to client..."
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200 placeholder-slate-500"
                   />
                   <button 
                     type="submit"
                     disabled={!newMessage.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white p-2 rounded-lg transition-colors cursor-pointer"
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white p-2 rounded-lg transition-colors cursor-pointer shadow-xs"
                   >
                     <Send className="w-3.5 h-3.5" />
                   </button>

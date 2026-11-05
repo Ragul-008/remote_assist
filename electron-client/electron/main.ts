@@ -576,7 +576,7 @@ function registerIpcAndAppHandlers() {
         // Zoho Assist Ctrl+Alt+Del handler: Open Windows Security / Task Manager
         exec('start taskmgr.exe');
       } else if (data.action === 'hotkey' && Array.isArray(data.keys)) {
-        const keyMap: Record<string, any> = {
+        const _keyMap: Record<string, any> = {
           'Control': Key.LeftControl,
           'Ctrl': Key.LeftControl,
           'Shift': Key.LeftShift,
