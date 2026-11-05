@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Play, Copy, Check, Users, Clock, Monitor, Plus, Loader2, Link } from 'lucide-react';
+import { Play, Copy, Check, Users, Clock, Monitor, Plus, Loader2, Link, HardDrive, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 const TechnicianDashboard = () => {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<any[]>([]);
+  const [onlineDevicesCount, setOnlineDevicesCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -17,6 +18,7 @@ const TechnicianDashboard = () => {
 
   useEffect(() => {
     fetchSessions();
+    fetchDevicesCount();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -32,6 +34,16 @@ const TechnicianDashboard = () => {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchDevicesCount = async () => {
+    try {
+      const res = await api.get('/devices');
+      const online = res.data.filter((d: any) => d.status === 'online').length;
+      setOnlineDevicesCount(online);
+    } catch {
+      // Ignore
     }
   };
 
@@ -90,14 +102,14 @@ const TechnicianDashboard = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <motion.div whileHover={{ y: -2 }} className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-lg text-blue-600 dark:text-blue-400">
               <Monitor className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Active Sessions</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Active Sessions</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeSessions.length}</p>
             </div>
           </div>
@@ -109,9 +121,30 @@ const TechnicianDashboard = () => {
               <Clock className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Completed</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Completed</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{sessions.filter(s => s.status === 'completed').length}</p>
             </div>
+          </div>
+        </motion.div>
+
+        <motion.div 
+          whileHover={{ y: -2 }} 
+          onClick={() => navigate('/devices')}
+          className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-indigo-100 dark:border-indigo-900/40 cursor-pointer hover:border-indigo-500 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg text-indigo-600 dark:text-indigo-400">
+                <HardDrive className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Unattended Computers</p>
+                <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                  {onlineDevicesCount} <span className="text-xs font-normal text-gray-500">online</span>
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-indigo-400" />
           </div>
         </motion.div>
 
@@ -121,7 +154,7 @@ const TechnicianDashboard = () => {
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Total Customers</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Total Clients</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">
                 {new Set(sessions.map(s => s.customer_id).filter(Boolean)).size}
               </p>

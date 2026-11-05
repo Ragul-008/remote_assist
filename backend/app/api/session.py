@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database.connection import get_database
-from app.schemas.session import SessionResponse, SessionStatus
+from app.database.audit import record_audit_log
+from app.schemas.session import SessionResponse, SessionStatus, SessionCreate, SessionNotesUpdate
 from app.auth.dependencies import get_current_technician, get_current_active_user
 import uuid
 import random
@@ -17,6 +18,7 @@ def generate_session_code():
 
 @router.post("/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
+    session_data: SessionCreate = None,
     current_user: dict = Depends(get_current_technician),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
@@ -24,15 +26,30 @@ async def create_session(
     session_dict = {
         "session_code": session_code,
         "technician_id": current_user["id"],
+        "technician_name": current_user.get("name", "Technician"),
         "customer_id": None,
+        "customer_name": None,
         "status": SessionStatus.PENDING,
         "start_time": datetime.utcnow(),
-        "end_time": None
+        "end_time": None,
+        "duration_seconds": None,
+        "notes": session_data.notes if session_data else None,
+        "is_unattended": bool(session_data and session_data.device_id),
+        "device_id": session_data.device_id if session_data else None
     }
     
     new_session = await db.sessions.insert_one(session_dict)
     created_session = await db.sessions.find_one({"_id": new_session.inserted_id})
     created_session["id"] = str(created_session["_id"])
+
+    await record_audit_log(
+        db,
+        action="session_created",
+        details=f"Session {session_code} created by {current_user.get('name')}",
+        user=current_user,
+        session_code=session_code
+    )
+
     return created_session
 
 @router.get("/", response_model=list[SessionResponse])
@@ -40,16 +57,49 @@ async def list_sessions(
     current_user: dict = Depends(get_current_active_user),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
-    # If technician, get all their sessions. If customer, get all their joined sessions.
-    if current_user.get("role") == "technician":
-        cursor = db.sessions.find({"technician_id": current_user["id"]})
+    # Admins see all sessions, technicians see their sessions, customers see their joined sessions
+    if current_user.get("role") == "admin":
+        cursor = db.sessions.find().sort("start_time", -1)
+    elif current_user.get("role") == "technician":
+        cursor = db.sessions.find({"technician_id": current_user["id"]}).sort("start_time", -1)
     else:
-        cursor = db.sessions.find({"customer_id": current_user["id"]})
+        cursor = db.sessions.find({"customer_id": current_user["id"]}).sort("start_time", -1)
         
     sessions = await cursor.to_list(length=100)
     for s in sessions:
         s["id"] = str(s["_id"])
     return sessions
+
+@router.get("/code/{session_code}", response_model=SessionResponse)
+async def get_session_by_code(
+    session_code: str,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    session = await db.sessions.find_one({"session_code": session_code})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session["id"] = str(session["_id"])
+    return session
+
+@router.put("/code/{session_code}/notes", response_model=SessionResponse)
+async def update_session_notes(
+    session_code: str,
+    notes_data: SessionNotesUpdate,
+    current_user: dict = Depends(get_current_technician),
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    session = await db.sessions.find_one({"session_code": session_code})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await db.sessions.update_one(
+        {"_id": session["_id"]},
+        {"$set": {"notes": notes_data.notes}}
+    )
+    
+    updated = await db.sessions.find_one({"_id": session["_id"]})
+    updated["id"] = str(updated["_id"])
+    return updated
 
 @router.get("/customers")
 async def list_customers(
@@ -57,8 +107,12 @@ async def list_customers(
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     # Fetch unique customers the technician has supported
+    match_query = {"customer_id": {"$ne": None}}
+    if current_user.get("role") != "admin":
+        match_query["technician_id"] = current_user["id"]
+
     pipeline = [
-        {"$match": {"technician_id": current_user["id"], "customer_id": {"$ne": None}}},
+        {"$match": match_query},
         {"$group": {
             "_id": "$customer_id",
             "total_sessions": {"$sum": 1},
@@ -68,11 +122,14 @@ async def list_customers(
     
     customers_data = await db.sessions.aggregate(pipeline).to_list(length=100)
     
-    # Enrich with customer details
     result = []
     for c in customers_data:
         from bson.objectid import ObjectId
-        customer = await db.users.find_one({"_id": ObjectId(c["_id"])})
+        try:
+            customer = await db.users.find_one({"_id": ObjectId(c["_id"])})
+        except Exception:
+            customer = None
+
         if customer:
             result.append({
                 "id": str(customer["_id"]),
@@ -87,6 +144,7 @@ async def list_customers(
 @router.post("/join/{session_code}", response_model=SessionResponse)
 async def join_session(
     session_code: str,
+    request: Request,
     current_user: dict = Depends(get_current_active_user),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
@@ -96,11 +154,26 @@ async def join_session(
         
     await db.sessions.update_one(
         {"_id": session["_id"]},
-        {"$set": {"customer_id": current_user["id"], "status": SessionStatus.ACTIVE}}
+        {"$set": {
+            "customer_id": current_user["id"],
+            "customer_name": current_user.get("name", "Customer"),
+            "status": SessionStatus.ACTIVE
+        }}
     )
     
     updated_session = await db.sessions.find_one({"_id": session["_id"]})
     updated_session["id"] = str(updated_session["_id"])
+
+    client_ip = request.client.host if request.client else None
+    await record_audit_log(
+        db,
+        action="session_joined",
+        details=f"Customer {current_user.get('name')} joined session {session_code}",
+        user=current_user,
+        session_code=session_code,
+        ip_address=client_ip
+    )
+
     return updated_session
 
 @router.put("/code/{session_code}/end")
@@ -109,15 +182,37 @@ async def end_session(
     current_user: dict = Depends(get_current_technician),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
-    session = await db.sessions.find_one({"session_code": session_code, "technician_id": current_user["id"]})
+    query = {"session_code": session_code}
+    if current_user.get("role") != "admin":
+        query["technician_id"] = current_user["id"]
+
+    session = await db.sessions.find_one(query)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    now = datetime.utcnow()
+    duration = None
+    if session.get("start_time"):
+        duration = int((now - session["start_time"]).total_seconds())
+
     await db.sessions.update_one(
         {"_id": session["_id"]},
-        {"$set": {"status": SessionStatus.COMPLETED, "end_time": datetime.utcnow()}}
+        {"$set": {
+            "status": SessionStatus.COMPLETED,
+            "end_time": now,
+            "duration_seconds": duration
+        }}
     )
-    return {"message": "Session ended successfully"}
+
+    await record_audit_log(
+        db,
+        action="session_ended",
+        details=f"Session {session_code} ended by {current_user.get('name')} (Duration: {duration}s)",
+        user=current_user,
+        session_code=session_code
+    )
+
+    return {"message": "Session ended successfully", "duration_seconds": duration}
 
 @router.get("/{session_code}/download")
 async def download_app(session_code: str):

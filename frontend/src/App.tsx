@@ -12,6 +12,9 @@ import SessionsList from './pages/SessionsList';
 import CustomersList from './pages/CustomersList';
 import Settings from './pages/Settings';
 import JoinSession from './pages/JoinSession';
+import DevicesList from './pages/DevicesList';
+import AdminUsers from './pages/AdminUsers';
+import AdminAuditLogs from './pages/AdminAuditLogs';
 
 // A simple protective route component
 const ProtectedRoute = ({ children, allowedRoles }: { children: ReactNode, allowedRoles?: string[] }) => {
@@ -25,8 +28,12 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: ReactNode, allow
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={user.role === 'technician' ? '/technician' : '/customer'} replace />;
+  // Admins are allowed on all technician/admin routes
+  if (allowedRoles) {
+    const isPermitted = allowedRoles.includes(user.role) || (user.role === 'admin' && allowedRoles.includes('technician'));
+    if (!isPermitted) {
+      return <Navigate to={user.role === 'customer' ? '/customer' : '/technician'} replace />;
+    }
   }
 
   return <>{children}</>;
@@ -46,12 +53,29 @@ function App() {
           {/* Dashboard Routes */}
           <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
             <Route path="/technician" element={
-              <ProtectedRoute allowedRoles={['technician']}>
+              <ProtectedRoute allowedRoles={['technician', 'admin']}>
                 <TechnicianDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/devices" element={
+              <ProtectedRoute allowedRoles={['technician', 'admin']}>
+                <DevicesList />
               </ProtectedRoute>
             } />
             <Route path="/technician/sessions" element={<SessionsList />} />
             <Route path="/technician/customers" element={<CustomersList />} />
+
+            {/* Admin Routes */}
+            <Route path="/admin/users" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminUsers />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/audit-logs" element={
+              <ProtectedRoute allowedRoles={['admin', 'technician']}>
+                <AdminAuditLogs />
+              </ProtectedRoute>
+            } />
             
             <Route path="/customer" element={
               <ProtectedRoute allowedRoles={['customer']}>
@@ -62,10 +86,10 @@ function App() {
             
             <Route path="/settings" element={<Settings />} />
             {/* Redirect root to appropriate dashboard */}
-            <Route path="/" element={<Navigate to="/customer" replace />} />
+            <Route path="/" element={<Navigate to="/technician" replace />} />
           </Route>
 
-          {/* Support Room (Phase 5) */}
+          {/* Support Room */}
           <Route path="/room/:sessionCode" element={
             <ProtectedRoute>
               <SupportRoom />

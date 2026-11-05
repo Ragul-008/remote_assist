@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.websocket.manager import manager
 from app.database.connection import get_database
 from app.auth.security import SECRET_KEY, ALGORITHM
+from app.database.audit import record_audit_log
 import jwt
 from jwt.exceptions import PyJWTError
 import json
@@ -29,8 +30,9 @@ async def websocket_endpoint(
         await websocket.close(code=4003, reason="Session is already ended/completed")
         return
 
-    # 2. Strict Authentication for Technician
-    if role == "technician":
+    # 2. Strict Authentication for Technician / Admin
+    tech_user = None
+    if role in ["technician", "admin"]:
         if not token:
             await websocket.accept()
             await websocket.close(code=4001, reason="Authentication token required for technician")
@@ -45,13 +47,13 @@ async def websocket_endpoint(
                 return
                 
             tech_user = await db.users.find_one({"email": email})
-            if not tech_user or tech_user.get("role") != "technician":
+            if not tech_user or tech_user.get("role") not in ["technician", "admin"]:
                 await websocket.accept()
-                await websocket.close(code=4003, reason="Unauthorized: User is not a technician")
+                await websocket.close(code=4003, reason="Unauthorized: User is not a technician or admin")
                 return
                 
-            # Verify technician owns this session
-            if session.get("technician_id") != str(tech_user["_id"]):
+            # If not an admin, verify technician owns this session
+            if tech_user.get("role") != "admin" and session.get("technician_id") != str(tech_user["_id"]):
                 await websocket.accept()
                 await websocket.close(code=4003, reason="Unauthorized: You do not own this support session")
                 return
@@ -77,10 +79,30 @@ async def websocket_endpoint(
                 parsed_data = json.loads(data)
                 msg_type = parsed_data.get("type")
 
-                # SECURITY GUARD: Only the authenticated technician can send control or elevation commands
-                if msg_type in ["control", "elevate-session"] and role != "technician":
+                # SECURITY GUARD: Only authenticated technician or admin can send control or elevation commands
+                if msg_type in ["control", "elevate-session"] and role not in ["technician", "admin"]:
                     print(f"[SECURITY ALERT] Blocked unauthorized {msg_type} command from role={role} in session {session_code}")
                     continue
+
+                # Audit elevation and file transfers
+                if msg_type == "elevate-session":
+                    await record_audit_log(
+                        db,
+                        action="elevation_requested",
+                        details=f"Elevation requested in session {session_code} (mode: {parsed_data.get('payload', {}).get('mode', 'prompt')})",
+                        session_code=session_code,
+                        user=tech_user
+                    )
+                elif msg_type == "file-metadata":
+                    file_name = parsed_data.get("payload", {}).get("name", "unknown")
+                    file_size = parsed_data.get("payload", {}).get("size", 0)
+                    await record_audit_log(
+                        db,
+                        action="file_transfer_started",
+                        details=f"File transfer initiated: {file_name} ({file_size} bytes) in session {session_code}",
+                        session_code=session_code,
+                        user=tech_user
+                    )
 
                 parsed_data["sender_role"] = role
                 await manager.broadcast_to_session(json.dumps(parsed_data), session_code, sender=websocket)

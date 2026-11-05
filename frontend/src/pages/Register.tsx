@@ -129,8 +129,9 @@ const Register = () => {
                   onChange={(e) => setRole(e.target.value)}
                   className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white transition-colors"
                 >
-                  <option value="customer">Customer (Need Support)</option>
                   <option value="technician">Technician (Provide Support)</option>
+                  <option value="admin">Administrator (Full IT Management)</option>
+                  <option value="customer">Customer (Need Support)</option>
                 </select>
               </div>
             </div>

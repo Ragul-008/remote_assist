@@ -35,10 +35,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncIOMotor
     return user
 
 async def get_current_active_user(current_user: dict = Depends(get_current_user)):
-    # You can add logic here to check if the user is disabled
+    if current_user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="User account is deactivated")
     return current_user
 
 async def get_current_technician(current_user: dict = Depends(get_current_active_user)):
-    if current_user.get("role") != "technician":
-        raise HTTPException(status_code=403, detail="Not enough permissions")
+    if current_user.get("role") not in ["technician", "admin"]:
+        raise HTTPException(status_code=403, detail="Not enough permissions: technician access required")
+    return current_user
+
+async def get_current_admin(current_user: dict = Depends(get_current_active_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not enough permissions: admin access required")
     return current_user

@@ -1,6 +1,9 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, dialog, screen as electronScreen, Menu, Tray, nativeImage, clipboard } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
+import https from 'node:https'
+import http from 'node:http'
 import { exec, execSync, spawn } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 
@@ -72,7 +75,8 @@ process.on('exit', () => {
 
 // Bypass Vite bundler for native module
 const nutjs = require(String('@nut-tree-fork/nut-js'))
-const { mouse, Point, keyboard, Key, screen } = nutjs
+const { mouse, Point, keyboard, Key, screen, Button } = nutjs
+let selectedSourceId: string | null = null;
 
 const DIST = path.join(__dirname, '../dist')
 const VITE_PUBLIC = app.isPackaged ? DIST : path.join(DIST, '../public')
@@ -120,6 +124,219 @@ function parseSessionLaunchInfo(argv: string[]): { sessionId: string; name: stri
   return null;
 }
 
+interface UnattendedConfig {
+  deviceKey: string;
+  deviceName: string;
+  group: string;
+  autoStart: boolean;
+}
+
+let unattendedConfig: UnattendedConfig | null = null;
+let appTray: Tray | null = null;
+let heartbeatTimer: NodeJS.Timeout | null = null;
+const isUnattendedLaunch = process.argv.includes('--unattended') || process.argv.includes('--unattended-service');
+let privacyWindows: BrowserWindow[] = [];
+
+function apiPost(endpoint: string, data: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const rawApiUrl = process.env.VITE_API_URL || 'https://remote-assist-y8ot.onrender.com/api';
+    try {
+      const parsed = new URL(`${rawApiUrl.replace(/\/$/, '')}${endpoint}`);
+      const isHttps = parsed.protocol === 'https:';
+      const client = isHttps ? https : http;
+
+      const postData = JSON.stringify(data);
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (isHttps ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        },
+        timeout: 10000
+      };
+
+      const req = client.request(options, (res) => {
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(body);
+          }
+        });
+      });
+
+      req.on('error', (err) => reject(err));
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timed out'));
+      });
+
+      req.write(postData);
+      req.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function getUnattendedConfig(): UnattendedConfig {
+  const configDir = app.getPath('userData');
+  const configFile = path.join(configDir, 'unattended-config.json');
+
+  if (fs.existsSync(configFile)) {
+    try {
+      return JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    } catch {}
+  }
+
+  const newConfig: UnattendedConfig = {
+    deviceKey: 'dev_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+    deviceName: os.hostname(),
+    group: 'Default',
+    autoStart: true
+  };
+
+  try {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configFile, JSON.stringify(newConfig, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to write unattended config:', err);
+  }
+  return newConfig;
+}
+
+function updateUnattendedConfig(updates: Partial<UnattendedConfig>) {
+  const configDir = app.getPath('userData');
+  const configFile = path.join(configDir, 'unattended-config.json');
+  unattendedConfig = { ...(unattendedConfig || getUnattendedConfig()), ...updates };
+  try {
+    fs.writeFileSync(configFile, JSON.stringify(unattendedConfig, null, 2), 'utf8');
+  } catch {}
+}
+
+function setupTray() {
+  if (appTray) return;
+  unattendedConfig = getUnattendedConfig();
+
+  const iconPath = path.join(VITE_PUBLIC, 'electron-vite.svg');
+  let icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    icon = nativeImage.createEmpty();
+  }
+
+  appTray = new Tray(icon);
+  appTray.setToolTip(`RemoteAssist Host - ${unattendedConfig.deviceName} (Online)`);
+
+  const refreshMenu = () => {
+    const menu = Menu.buildFromTemplate([
+      { label: `🖥️ Computer: ${unattendedConfig?.deviceName}`, enabled: false },
+      { label: `🔑 Device Key: ${unattendedConfig?.deviceKey.substring(0, 10)}...`, enabled: false },
+      { label: `🟢 Status: Online & Ready`, enabled: false },
+      { type: 'separator' },
+      {
+        label: 'Start with Windows (Unattended)',
+        type: 'checkbox',
+        checked: Boolean(unattendedConfig?.autoStart),
+        click: (item) => {
+          updateUnattendedConfig({ autoStart: item.checked });
+          app.setLoginItemSettings({
+            openAtLogin: item.checked,
+            args: ['--unattended']
+          });
+        }
+      },
+      {
+        label: 'Copy Device Key',
+        click: () => {
+          if (unattendedConfig?.deviceKey) {
+            clipboard.writeText(unattendedConfig.deviceKey);
+            dialog.showMessageBox({ message: 'Device key copied to clipboard!', title: 'RemoteAssist' });
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Open RemoteAssist Window',
+        click: () => {
+          if (win) {
+            win.show();
+            win.focus();
+          }
+        }
+      },
+      {
+        label: 'Quit Host Service',
+        click: () => {
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          app.quit();
+        }
+      }
+    ]);
+    appTray?.setContextMenu(menu);
+  };
+
+  refreshMenu();
+}
+
+function startUnattendedService() {
+  unattendedConfig = getUnattendedConfig();
+
+  if (unattendedConfig.autoStart) {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        args: ['--unattended']
+      });
+    } catch {}
+  }
+
+  // Initial registration with backend
+  apiPost('/devices/register', {
+    device_key: unattendedConfig.deviceKey,
+    name: unattendedConfig.deviceName,
+    hostname: os.hostname(),
+    os_info: `${os.type()} ${os.release()} (${os.arch()})`,
+    platform: process.platform,
+    group: unattendedConfig.group,
+    system_info: {
+      cpus: os.cpus().length,
+      memory_gb: Math.round(os.totalmem() / (1024 * 1024 * 1024)),
+      uptime_hours: Math.round(os.uptime() / 3600)
+    }
+  }).catch(() => {});
+
+  // Polling heartbeat every 8 seconds
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(async () => {
+    if (!unattendedConfig) return;
+    try {
+      const res = await apiPost(`/devices/${unattendedConfig.deviceKey}/heartbeat`, {
+        device_key: unattendedConfig.deviceKey,
+        system_info: {
+          uptime_hours: Math.round(os.uptime() / 3600),
+          free_mem_gb: Math.round(os.freemem() / (1024 * 1024 * 1024))
+        }
+      });
+
+      if (res && res.active_session_code) {
+        console.log(`[UNATTENDED DAEMON] Incoming technician connection! Session: ${res.active_session_code}`);
+        setUACSecureDesktop(false);
+        if (win) {
+          win.webContents.send('handle-deep-link', {
+            sessionId: res.active_session_code,
+            name: unattendedConfig.deviceName
+          });
+        }
+      }
+    } catch {}
+  }, 8000);
+}
+
 function createWindow() {
   const sessionInfo = parseSessionLaunchInfo(process.argv);
   const isSessionLaunch = Boolean(sessionInfo) || process.argv.includes('--elevated-relaunch');
@@ -133,7 +350,7 @@ function createWindow() {
     transparent: isSessionLaunch,
     hasShadow: !isSessionLaunch,
     autoHideMenuBar: true,
-    show: true, // Always show immediately so the user knows the application opened
+    show: !isUnattendedLaunch, // If running as unattended host, start silently in background
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -174,8 +391,52 @@ function registerIpcAndAppHandlers() {
   // Handle explicit quit from frontend (when session ends)
   ipcMain.on('quit-app', () => {
     restoreUACSecureDesktopSync(); // Restore Windows default security
-    app.quit()
-  })
+    privacyWindows.forEach(w => { try { w.destroy(); } catch {} });
+    privacyWindows = [];
+
+    if (isUnattendedLaunch || (unattendedConfig && unattendedConfig.autoStart)) {
+      // In unattended mode, hide window and stay active in system tray
+      win?.hide();
+    } else {
+      app.quit();
+    }
+  });
+
+  // Zoho Assist Privacy Screen (Screen Blanking)
+  ipcMain.on('set-privacy-curtain', (_event, enabled: boolean) => {
+    if (enabled) {
+      if (privacyWindows.length > 0) return;
+      const displays = electronScreen.getAllDisplays();
+      privacyWindows = displays.map(d => {
+        const pw = new BrowserWindow({
+          x: d.bounds.x,
+          y: d.bounds.y,
+          width: d.bounds.width,
+          height: d.bounds.height,
+          frame: false,
+          transparent: false,
+          backgroundColor: '#000000',
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          focusable: false,
+        });
+        pw.loadURL('data:text/html,<body style="background:#0a0a0c;color:#888;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;"><div style="text-align:center;"><h2 style="color:#aaa;">Remote Maintenance In Progress</h2><p>An IT Technician is servicing this computer securely.</p></div></body>');
+        return pw;
+      });
+    } else {
+      privacyWindows.forEach(w => {
+        try { w.destroy(); } catch {}
+      });
+      privacyWindows = [];
+    }
+  });
+
+  // Unattended Configuration IPC handlers
+  ipcMain.handle('get-unattended-config', () => getUnattendedConfig());
+  ipcMain.handle('update-unattended-config', (_event, updates) => {
+    updateUnattendedConfig(updates);
+    return getUnattendedConfig();
+  });
 
   // Convert customer window into a compact, always-on-top floating control widget
   ipcMain.on('set-floating-widget', () => {
@@ -211,53 +472,145 @@ function registerIpcAndAppHandlers() {
     return isRunningAsAdmin() || isUACElevationActive();
   });
 
+  // Multi-monitor screen listing
+  ipcMain.handle('get-available-screens', async () => {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    return sources.map((s, idx) => ({
+      id: s.id,
+      name: s.name || `Screen ${idx + 1}`,
+      display_id: s.display_id,
+    }));
+  });
+
+  ipcMain.on('select-screen-source', (_event, sourceId: string) => {
+    selectedSourceId = sourceId;
+    win?.webContents.send('screen-source-changed', sourceId);
+  });
+
   // Auto-approve screen sharing requests in Electron
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      // Automatically share the primary screen (first source)
-      callback({ video: sources[0], audio: 'loopback' })
+      let chosen = sources[0];
+      if (selectedSourceId) {
+        const match = sources.find(s => s.id === selectedSourceId);
+        if (match) chosen = match;
+      }
+      callback({ video: chosen, audio: 'loopback' });
     }).catch(err => {
-      console.error('Error getting sources:', err)
-    })
-  })
+      console.error('Error getting sources:', err);
+    });
+  });
 
   // Handle desktop capturer for screen sharing
   ipcMain.handle('get-desktop-sources', async () => {
-    return await desktopCapturer.getSources({ types: ['screen', 'window'] })
-  })
+    return await desktopCapturer.getSources({ types: ['screen', 'window'] });
+  });
 
-  // Handle remote control commands with strict input sanitization
+  // Native file transfer writer to customer Downloads directory
+  ipcMain.handle('save-file-transfer', async (_event, fileInfo: { name: string; buffer: string; encoding?: string }) => {
+    try {
+      const downloadsDir = app.getPath('downloads');
+      let targetPath = path.join(downloadsDir, fileInfo.name);
+      let counter = 1;
+      const ext = path.extname(fileInfo.name);
+      const base = path.basename(fileInfo.name, ext);
+
+      while (fs.existsSync(targetPath)) {
+        targetPath = path.join(downloadsDir, `${base} (${counter})${ext}`);
+        counter++;
+      }
+
+      const fileBuffer = Buffer.from(fileInfo.buffer, 'base64');
+      fs.writeFileSync(targetPath, fileBuffer);
+      return { success: true, path: targetPath, filename: path.basename(targetPath) };
+    } catch (err: any) {
+      console.error('File save error:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Handle remote control commands with full mouse, keyboard, and gesture simulation
   ipcMain.on('remote-control', async (event, data) => {
     try {
       if (!data || typeof data !== 'object') return;
 
-      if (data.action === 'click' || data.action === 'rightclick') {
-        if (typeof data.relativeX !== 'number' || typeof data.relativeY !== 'number') return;
-        if (isNaN(data.relativeX) || isNaN(data.relativeY)) return;
+      const screenWidth = await screen.width();
+      const screenHeight = await screen.height();
 
-        // Strictly clamp coordinates between 0.0 and 1.0
-        const clampedX = Math.max(0, Math.min(1, data.relativeX));
-        const clampedY = Math.max(0, Math.min(1, data.relativeY));
+      const getAbsoluteCoords = (rx: number, ry: number) => {
+        const clampedX = Math.max(0, Math.min(1, rx));
+        const clampedY = Math.max(0, Math.min(1, ry));
+        return {
+          x: Math.round(clampedX * screenWidth),
+          y: Math.round(clampedY * screenHeight)
+        };
+      };
 
-        const screenWidth = await screen.width()
-        const screenHeight = await screen.height()
-        
-        const absoluteX = Math.round(clampedX * screenWidth)
-        const absoluteY = Math.round(clampedY * screenHeight)
-        
-        await mouse.setPosition(new Point(absoluteX, absoluteY))
-        
+      if (['click', 'rightclick', 'doubleclick', 'mousedown', 'mouseup', 'mousemove'].includes(data.action)) {
+        if (typeof data.relativeX === 'number' && typeof data.relativeY === 'number') {
+          const { x, y } = getAbsoluteCoords(data.relativeX, data.relativeY);
+          await mouse.setPosition(new Point(x, y));
+        }
+
         if (data.action === 'click') {
-          await mouse.leftClick()
+          await mouse.leftClick();
+        } else if (data.action === 'rightclick') {
+          await mouse.rightClick();
+        } else if (data.action === 'doubleclick') {
+          await mouse.leftClick();
+          await mouse.leftClick();
+        } else if (data.action === 'mousedown') {
+          await mouse.pressButton(Button.LEFT);
+        } else if (data.action === 'mouseup') {
+          await mouse.releaseButton(Button.LEFT);
+        }
+      } else if (data.action === 'scroll') {
+        const delta = Number(data.deltaY) || 0;
+        const scrollTicks = Math.min(5, Math.max(1, Math.round(Math.abs(delta) / 40)));
+        if (delta > 0) {
+          await mouse.scrollDown(scrollTicks);
         } else {
-          await mouse.rightClick()
+          await mouse.scrollUp(scrollTicks);
+        }
+      } else if (data.action === 'cad') {
+        // Zoho Assist Ctrl+Alt+Del handler: Open Windows Security / Task Manager
+        exec('start taskmgr.exe');
+      } else if (data.action === 'hotkey' && Array.isArray(data.keys)) {
+        const keyMap: Record<string, any> = {
+          'Control': Key.LeftControl,
+          'Ctrl': Key.LeftControl,
+          'Shift': Key.LeftShift,
+          'Alt': Key.LeftAlt,
+          'Meta': Key.LeftSuper,
+          'Win': Key.LeftSuper,
+          'Tab': Key.Tab,
+          'Escape': Key.Escape,
+          'Esc': Key.Escape,
+          'Enter': Key.Enter,
+          'Backspace': Key.Backspace,
+          'Delete': Key.Delete,
+        };
+
+        // For simple combos like Ctrl+C, Ctrl+V, Win+R
+        if (data.keys.length === 2 && (data.keys[0] === 'Control' || data.keys[0] === 'Ctrl')) {
+          const secondKey = data.keys[1].toLowerCase();
+          if (secondKey === 'c') {
+            await keyboard.pressKey(Key.LeftControl, Key.C);
+            await keyboard.releaseKey(Key.LeftControl, Key.C);
+          } else if (secondKey === 'v') {
+            await keyboard.pressKey(Key.LeftControl, Key.V);
+            await keyboard.releaseKey(Key.LeftControl, Key.V);
+          } else if (secondKey === 'a') {
+            await keyboard.pressKey(Key.LeftControl, Key.A);
+            await keyboard.releaseKey(Key.LeftControl, Key.A);
+          }
         }
       } else if (data.action === 'keydown') {
-        const key = data.key
+        const key = data.key;
         if (typeof key !== 'string' || key.length === 0 || key.length > 50) return;
 
         if (key.length === 1 && key !== ' ') {
-          await keyboard.type(key)
+          await keyboard.type(key);
         } else {
           // Map special keys safely
           const keyMap: Record<string, any> = {
@@ -271,16 +624,20 @@ function registerIpcAndAppHandlers() {
             'ArrowLeft': Key.Left,
             'ArrowRight': Key.Right,
             ' ': Key.Space,
-          }
+            'Home': Key.Home,
+            'End': Key.End,
+            'PageUp': Key.PageUp,
+            'PageDown': Key.PageDown,
+          };
           if (keyMap[key]) {
-            await keyboard.type(keyMap[key])
+            await keyboard.type(keyMap[key]);
           }
         }
       }
     } catch (err) {
-      console.error("Remote control error:", err)
+      console.error("Remote control error:", err);
     }
-  })
+  });
 
   // Zoho Assist-grade seamless session elevation
   ipcMain.on('elevate-session', (_event, payload: { mode: 'credentials' | 'prompt', username?: string, password?: string, sessionCode?: string }) => {
@@ -438,6 +795,10 @@ function startApplication() {
 
   app.on('window-all-closed', () => {
     restoreUACSecureDesktopSync();
+    if (isUnattendedLaunch || (unattendedConfig && unattendedConfig.autoStart)) {
+      // In unattended mode, keep host running silently in the system tray
+      return;
+    }
     if (process.platform !== 'darwin') {
       app.quit();
       win = null;
@@ -468,6 +829,8 @@ function startApplication() {
     }
 
     registerIpcAndAppHandlers();
+    setupTray();
+    startUnattendedService();
   });
 }
 

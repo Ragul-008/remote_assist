@@ -1,22 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ShieldCheck, PhoneOff, Loader2 } from 'lucide-react';
+import { ShieldCheck, PhoneOff, Loader2, MousePointer, PauseCircle, PlayCircle, Download } from 'lucide-react';
 
 const SilentSupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
   const [isConnected, setIsConnected] = useState(false);
+  const [isControlPaused, setIsControlPaused] = useState(false);
+  const [lastReceivedFile, setLastReceivedFile] = useState<string | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+  const isControlPausedRef = useRef(false);
 
   const ICE_SERVERS = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
     ]
   };
+
+  useEffect(() => {
+    isControlPausedRef.current = isControlPaused;
+  }, [isControlPaused]);
 
   useEffect(() => {
     // Dock as floating widget immediately on mount so customer sees the window right away
@@ -52,8 +75,14 @@ const SilentSupportRoom = () => {
             type: 'admin-status',
             payload: { isAdmin }
           }));
+
+          const screens = await (window as any).ipcRenderer.invoke('get-available-screens');
+          socket.send(JSON.stringify({
+            type: 'available-screens',
+            payload: { screens }
+          }));
         } catch {
-          // Ignore if is-admin is not supported
+          // Ignore if unsupported
         }
       }
     };
@@ -69,8 +98,40 @@ const SilentSupportRoom = () => {
     socket.onmessage = async (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'control') {
+        if (isControlPausedRef.current) {
+          // Customer has paused control
+          return;
+        }
         if ((window as any).ipcRenderer) {
           (window as any).ipcRenderer.send('remote-control', data.payload);
+        }
+      } else if (data.type === 'file-transfer') {
+        // Handle file transfer from technician
+        if ((window as any).ipcRenderer && data.payload) {
+          try {
+            const saveRes = await (window as any).ipcRenderer.invoke('save-file-transfer', data.payload);
+            if (saveRes.success) {
+              setLastReceivedFile(saveRes.filename);
+              socket.send(JSON.stringify({
+                type: 'file-transfer-saved',
+                payload: { filename: saveRes.filename, path: saveRes.path }
+              }));
+              setTimeout(() => setLastReceivedFile(null), 5000);
+            }
+          } catch (e) {
+            console.error('File saving failed:', e);
+          }
+        }
+      } else if (data.type === 'privacy-curtain') {
+        if ((window as any).ipcRenderer) {
+          (window as any).ipcRenderer.send('set-privacy-curtain', Boolean(data.payload?.enabled));
+        }
+      } else if (data.type === 'select-display') {
+        if ((window as any).ipcRenderer && data.payload?.sourceId) {
+          (window as any).ipcRenderer.send('select-screen-source', data.payload.sourceId);
+          // Restart screen share with the newly selected display
+          stopScreenShare();
+          setTimeout(() => startScreenShare(), 500);
         }
       } else if (data.type === 'elevate-session') {
         if ((window as any).ipcRenderer) {
@@ -223,6 +284,17 @@ const SilentSupportRoom = () => {
     }
   };
 
+  const togglePauseControl = () => {
+    const nextState = !isControlPaused;
+    setIsControlPaused(nextState);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'control-status-changed',
+        payload: { isControlPaused: nextState }
+      }));
+    }
+  };
+
   return (
     <div 
       className="w-full h-full box-border flex items-center justify-between px-4 py-2 bg-gray-900/95 text-white backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl select-none"
@@ -243,6 +315,11 @@ const SilentSupportRoom = () => {
               <>
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Remote Support Active</span>
+                {lastReceivedFile && (
+                  <span className="flex items-center gap-1 text-[10px] text-indigo-300 bg-indigo-900/80 px-1.5 py-0.5 rounded">
+                    <Download className="w-2.5 h-2.5" /> Saved: {lastReceivedFile}
+                  </span>
+                )}
               </>
             ) : (
               <span>Connecting to session...</span>
@@ -254,16 +331,31 @@ const SilentSupportRoom = () => {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={handleDisconnect}
-        style={{ WebkitAppRegion: 'no-drag' } as any}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-md transition-all cursor-pointer"
-        title="Stop screen sharing and disconnect technician"
-      >
-        <PhoneOff className="w-3.5 h-3.5" />
-        <span>End Session</span>
-      </button>
+      <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
+        <button
+          type="button"
+          onClick={togglePauseControl}
+          className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border transition-all ${
+            isControlPaused 
+              ? 'bg-amber-600/90 text-white border-amber-500' 
+              : 'bg-gray-800 text-gray-300 hover:text-white border-gray-700 hover:bg-gray-700'
+          }`}
+          title={isControlPaused ? "Click to resume technician mouse and keyboard control" : "Click to temporarily pause technician control"}
+        >
+          {isControlPaused ? <PlayCircle className="w-3 h-3 text-white" /> : <PauseCircle className="w-3 h-3 text-amber-400" />}
+          <span>{isControlPaused ? 'Resume Control' : 'Pause Control'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDisconnect}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-md transition-all cursor-pointer"
+          title="Stop screen sharing and disconnect technician"
+        >
+          <PhoneOff className="w-3.5 h-3.5" />
+          <span>End Session</span>
+        </button>
+      </div>
     </div>
   );
 };

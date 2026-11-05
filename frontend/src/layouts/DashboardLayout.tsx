@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   Monitor, Users, Clock, Settings, LogOut, 
-  Menu, X, Moon, Sun, MonitorSmartphone 
+  Menu, X, Moon, Sun, MonitorSmartphone, HardDrive, ShieldCheck 
 } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -25,16 +25,35 @@ const DashboardLayout = () => {
     }
   }, [darkMode]);
 
-  const navItems = user?.role === 'technician' ? [
-    { name: 'Dashboard', path: '/technician', icon: Monitor },
-    { name: 'Sessions', path: '/technician/sessions', icon: Clock },
-    { name: 'Customers', path: '/technician/customers', icon: Users },
-    { name: 'Settings', path: '/settings', icon: Settings },
-  ] : [
-    { name: 'Dashboard', path: '/customer', icon: MonitorSmartphone },
-    { name: 'My Sessions', path: '/customer/sessions', icon: Clock },
-    { name: 'Settings', path: '/settings', icon: Settings },
-  ];
+  const getNavItems = () => {
+    if (user?.role === 'admin') {
+      return [
+        { name: 'Dashboard', path: '/technician', icon: Monitor },
+        { name: 'Unattended Computers', path: '/devices', icon: HardDrive },
+        { name: 'User Management', path: '/admin/users', icon: Users },
+        { name: 'Audit Logs', path: '/admin/audit-logs', icon: ShieldCheck },
+        { name: 'Sessions', path: '/technician/sessions', icon: Clock },
+        { name: 'Customers', path: '/technician/customers', icon: Users },
+        { name: 'Settings', path: '/settings', icon: Settings },
+      ];
+    }
+    if (user?.role === 'technician') {
+      return [
+        { name: 'Dashboard', path: '/technician', icon: Monitor },
+        { name: 'Unattended Computers', path: '/devices', icon: HardDrive },
+        { name: 'Sessions', path: '/technician/sessions', icon: Clock },
+        { name: 'Customers', path: '/technician/customers', icon: Users },
+        { name: 'Settings', path: '/settings', icon: Settings },
+      ];
+    }
+    return [
+      { name: 'Dashboard', path: '/customer', icon: MonitorSmartphone },
+      { name: 'My Sessions', path: '/customer/sessions', icon: Clock },
+      { name: 'Settings', path: '/settings', icon: Settings },
+    ];
+  };
+
+  const navItems = getNavItems();
 
   const handleLogout = () => {
     logout();

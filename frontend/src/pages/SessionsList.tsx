@@ -79,70 +79,81 @@ const SessionsList = () => {
               <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-300">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Code</th>
-                  <th className="px-6 py-4 font-semibold">Status</th>
+                  <th className="px-6 py-4 font-semibold">Type / Status</th>
                   <th className="px-6 py-4 font-semibold">Date</th>
-                  {user?.role === 'technician' && <th className="px-6 py-4 font-semibold">Customer ID</th>}
-                  {user?.role === 'customer' && <th className="px-6 py-4 font-semibold">Technician ID</th>}
+                  <th className="px-6 py-4 font-semibold">Duration</th>
+                  <th className="px-6 py-4 font-semibold">Remarks / Notes</th>
                   <th className="px-6 py-4 font-semibold text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {sessions.map((session) => (
-                  <tr key={session.id} className="bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 font-mono font-medium text-gray-900 dark:text-white">
-                        {session.session_code}
-                        <button 
-                          onClick={() => handleCopy(session.session_code)}
-                          className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title="Copy Code"
-                        >
-                          {copiedCode === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                        <button 
-                          onClick={() => handleCopyLink(session.session_code)}
-                          className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title="Copy Join Link"
-                        >
-                          {copiedLink === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Link className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${
-                        session.status === 'active' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
-                        session.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      }`}>
-                        {session.status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>}
-                        {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
-                      {new Date(session.start_time).toLocaleDateString()} {new Date(session.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </td>
-                    {user?.role === 'technician' && (
-                      <td className="px-6 py-4 font-mono text-xs text-gray-500">
-                        {session.customer_id ? session.customer_id.substring(0,8) + '...' : '—'}
+                {sessions.map((session) => {
+                  const formatSecs = (secs?: number) => {
+                    if (!secs) return '—';
+                    const m = Math.floor(secs / 60);
+                    const s = secs % 60;
+                    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+                  };
+                  return (
+                    <tr key={session.id} className="bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 font-mono font-medium text-gray-900 dark:text-white">
+                          {session.session_code}
+                          <button 
+                            onClick={() => handleCopy(session.session_code)}
+                            className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Copy Code"
+                          >
+                            {copiedCode === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                          <button 
+                            onClick={() => handleCopyLink(session.session_code)}
+                            className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Copy Join Link"
+                          >
+                            {copiedLink === session.session_code ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Link className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       </td>
-                    )}
-                    {user?.role === 'customer' && (
-                      <td className="px-6 py-4 font-mono text-xs text-gray-500">
-                        {session.technician_id ? session.technician_id.substring(0,8) + '...' : '—'}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${
+                            session.status === 'active' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                            session.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                            'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          }`}>
+                            {session.status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5 animate-pulse"></span>}
+                            {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
+                          </span>
+                          {session.is_unattended && (
+                            <span className="text-[10px] bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded font-semibold">
+                              Unattended
+                            </span>
+                          )}
+                        </div>
                       </td>
-                    )}
-                    <td className="px-6 py-4 text-right">
-                      {(session.status === 'pending' || session.status === 'active') && (
-                        <button
-                          onClick={() => joinSession(session.session_code)}
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 px-3 py-1.5 rounded-md transition-colors"
-                        >
-                          <Play className="w-4 h-4" /> Rejoin
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-6 py-4 text-xs text-gray-600 dark:text-gray-300">
+                        {new Date(session.start_time).toLocaleDateString()} {new Date(session.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">
+                        {formatSecs(session.duration_seconds)}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate">
+                        {session.notes || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {(session.status === 'pending' || session.status === 'active') && (
+                          <button
+                            onClick={() => joinSession(session.session_code)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg transition-colors shadow-sm"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" /> Rejoin
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

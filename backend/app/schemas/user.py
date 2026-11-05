@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 class RoleEnum(str, Enum):
+    ADMIN = "admin"
     TECHNICIAN = "technician"
     CUSTOMER = "customer"
 
@@ -11,6 +12,7 @@ class UserBase(BaseModel):
     name: str
     email: EmailStr
     role: RoleEnum = RoleEnum.CUSTOMER
+    is_active: bool = True
 
 class UserCreate(UserBase):
     password: str
@@ -18,7 +20,12 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    # Password updates would be handled separately usually, keeping it simple for now
+    role: Optional[RoleEnum] = None
+    is_active: Optional[bool] = None
+
+class UserRoleUpdate(BaseModel):
+    role: RoleEnum
+    is_active: Optional[bool] = None
 
 class UserInDB(UserBase):
     id: str = Field(alias="_id")

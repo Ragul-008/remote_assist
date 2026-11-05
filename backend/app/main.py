@@ -4,6 +4,8 @@ from app.api.auth import router as auth_router
 from app.api.session import router as session_router
 from app.api.ws import router as ws_router
 from app.api.user import router as user_router
+from app.api.device import router as device_router
+from app.api.audit import router as audit_router
 
 app = FastAPI(title="RemoteAssist API")
 
@@ -20,6 +22,8 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(user_router, prefix="/api/users", tags=["users"])
 app.include_router(session_router, prefix="/api/sessions", tags=["sessions"])
+app.include_router(device_router, prefix="/api/devices", tags=["devices"])
+app.include_router(audit_router, prefix="/api/audit-logs", tags=["audit-logs"])
 app.include_router(ws_router, tags=["websocket"])
 
 @app.get("/")

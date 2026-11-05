@@ -1,33 +1,79 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type WheelEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { 
   Monitor, Video, VideoOff, MessageSquare, Send, PhoneOff, 
-  Loader2, ShieldAlert, KeyRound, ShieldCheck, X 
+  Loader2, ShieldAlert, KeyRound, ShieldCheck, X, Maximize, 
+  Minimize2, FileUp, Folder, ArrowRight, CheckCircle2, Clock, 
+  MousePointer, Eye, EyeOff, LayoutGrid, Terminal, Download, FileText, AlertCircle, RefreshCw
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+interface ChatMessage {
+  sender: string;
+  text: string;
+  time: string;
+}
+
+interface TransferredFile {
+  id: string;
+  name: string;
+  size: number;
+  direction: 'sent' | 'received';
+  timestamp: string;
+  status: 'completed' | 'failed' | 'sending';
+}
 
 const SupportRoom = () => {
   const { sessionCode } = useParams<{ sessionCode: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
   
+  // Connection & Stream State
   const [_ws, setWs] = useState<WebSocket | null>(null);
-  const [messages, setMessages] = useState<{sender: string, text: string}[]>([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isRemoteAdmin, setIsRemoteAdmin] = useState(false);
+  const [isCustomerControlPaused, setIsCustomerControlPaused] = useState(false);
 
-  // Zoho Assist-style remote session elevation state
+  // Multi-Monitor & View Controls
+  const [availableScreens, setAvailableScreens] = useState<{ id: string; name: string }[]>([]);
+  const [selectedScreenId, setSelectedScreenId] = useState<string>('');
+  const [screenFitMode, setScreenFitMode] = useState<'fit' | 'original' | 'stretch'>('fit');
+  const [isControlEnabled, setIsControlEnabled] = useState(true); // View Only vs Full Control
+  const [isPrivacyCurtainOn, setIsPrivacyCurtainOn] = useState(false); // Screen Blanking
+
+  // Live Timer
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+
+  // Live Chat
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'chat' | 'files' | 'notes'>('chat');
+
+  // File Transfer State
+  const [transferredFiles, setTransferredFiles] = useState<TransferredFile[]>([]);
+  const [showFileModal, setShowFileModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [transferProgress, setTransferProgress] = useState<number | null>(null);
+  const [isTransferring, setIsTransferring] = useState(false);
+
+  // Elevation Modal
   const [showElevateModal, setShowElevateModal] = useState(false);
   const [elevateMode, setElevateMode] = useState<'credentials' | 'prompt'>('prompt');
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isElevating, setIsElevating] = useState(false);
-  const [isRemoteAdmin, setIsRemoteAdmin] = useState(false);
-  
+
+  // Session Notes & End Modal
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [sessionNotes, setSessionNotes] = useState('');
+  const [isEnding, setIsEnding] = useState(false);
+
+  // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -35,12 +81,47 @@ const SupportRoom = () => {
   const localStreamRef = useRef<MediaStream | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+  const lastMouseMoveTime = useRef<number>(0);
+  const isMouseDownRef = useRef<boolean>(false);
 
   const ICE_SERVERS = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
     ]
+  };
+
+  // Live duration timer
+  useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => {
+      setSessionSeconds(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isConnected]);
+
+  // Format session timer HH:MM:SS
+  const formatDuration = (totalSecs: number) => {
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    return `${hrs > 0 ? `${hrs.toString().padStart(2, '0')}:` : ''}${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   useEffect(() => {
@@ -63,7 +144,7 @@ const SupportRoom = () => {
     socket.onopen = () => {
       if (wsRef.current !== socket) return;
       setIsConnected(true);
-      toast.success('Secure connection established');
+      toast.success('Secure remote session connected');
     };
 
     socket.onmessage = async (event) => {
@@ -71,7 +152,11 @@ const SupportRoom = () => {
       const data = JSON.parse(event.data);
       
       if (data.type === 'chat') {
-        setMessages(prev => [...prev, { sender: data.sender_role, text: data.payload }]);
+        setMessages(prev => [...prev, { 
+          sender: data.sender_role, 
+          text: data.payload, 
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+        }]);
         scrollToBottom();
       } else if (data.type === 'system') {
         toast(data.message, { icon: 'ℹ️' });
@@ -82,6 +167,24 @@ const SupportRoom = () => {
         if (adminActive) {
           toast.success('Administrator Mode Activated! Full UAC & elevated app control enabled.', { icon: '🛡️', duration: 4500 });
         }
+      } else if (data.type === 'control-status-changed') {
+        const isPaused = Boolean(data.payload?.isControlPaused);
+        setIsCustomerControlPaused(isPaused);
+        if (isPaused) {
+          toast('Customer paused remote control', { icon: '⏸️' });
+        } else {
+          toast.success('Customer resumed remote control');
+        }
+      } else if (data.type === 'available-screens') {
+        if (Array.isArray(data.payload?.screens)) {
+          setAvailableScreens(data.payload.screens);
+          if (data.payload.screens.length > 0 && !selectedScreenId) {
+            setSelectedScreenId(data.payload.screens[0].id);
+          }
+        }
+      } else if (data.type === 'file-transfer-saved') {
+        toast.success(`File "${data.payload?.filename}" successfully saved on remote machine!`, { icon: '📁', duration: 4000 });
+        setTransferredFiles(prev => prev.map(f => f.name === data.payload?.filename ? { ...f, status: 'completed' } : f));
       } else if (data.type === 'elevation-progress') {
         toast(data.message || 'Processing elevation...', { icon: '⏳' });
       } else if (data.type === 'elevation-failed') {
@@ -100,7 +203,7 @@ const SupportRoom = () => {
       } else if (event.code === 4004) {
         toast.error('Session not found');
       } else {
-        toast.error('Disconnected from server');
+        toast.error('Disconnected from remote session');
       }
     };
 
@@ -171,7 +274,6 @@ const SupportRoom = () => {
         }
       } else if (data.type === 'answer') {
         await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
-        
         while (iceCandidatesQueue.current.length > 0) {
           const candidate = iceCandidatesQueue.current.shift();
           if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -196,30 +298,20 @@ const SupportRoom = () => {
       });
       
       localStreamRef.current = stream;
-      
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
 
-      if (!peerConnectionRef.current) {
-        createPeerConnection();
-      }
-      
+      if (!peerConnectionRef.current) createPeerConnection();
       const pc = peerConnectionRef.current!;
-      
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
       
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       wsRef.current?.send(JSON.stringify({ type: 'offer', payload: offer }));
-      
       setIsScreenSharing(true);
 
-      stream.getVideoTracks()[0].onended = () => {
-        stopScreenShare();
-      };
+      stream.getVideoTracks()[0].onended = () => stopScreenShare();
     } catch (err) {
       console.error("Error starting screen share:", err);
       toast.error('Failed to start screen sharing');
@@ -235,54 +327,85 @@ const SupportRoom = () => {
       localVideoRef.current.srcObject = null;
     }
     setIsScreenSharing(false);
-    
-    // In a real app, you'd properly renegotiate to remove tracks
-    // For simplicity here, we rely on the stream ended event to clean up locally.
   };
 
-  const sendChatMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !wsRef.current) return;
-    
-    wsRef.current.send(JSON.stringify({ type: 'chat', payload: newMessage }));
-    setMessages(prev => [...prev, { sender: user?.role || 'me', text: newMessage }]);
-    setNewMessage('');
-    scrollToBottom();
-  };
+  // Accurate Relative Coordinate Calculation
+  const getCoordinates = (e: MouseEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    const rect = video.getBoundingClientRect();
+    const videoWidth = video.videoWidth || 1920;
+    const videoHeight = video.videoHeight || 1080;
+    const videoRatio = videoWidth / videoHeight;
+    const containerRatio = rect.width / rect.height;
 
-  const handleEndSession = async () => {
-    try {
-      if (user?.role === 'technician') {
-        await api.put(`/sessions/code/${sessionCode}/end`);
-        // Notify customer via WebSocket
-        wsRef.current?.send(JSON.stringify({ type: 'system', message: 'Technician has ended the session.' }));
+    let actualWidth = rect.width;
+    let actualHeight = rect.height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (screenFitMode === 'fit') {
+      if (containerRatio > videoRatio) {
+        actualWidth = rect.height * videoRatio;
+        offsetX = (rect.width - actualWidth) / 2;
+      } else {
+        actualHeight = rect.width / videoRatio;
+        offsetY = (rect.height - actualHeight) / 2;
       }
-      toast.success('Session ended');
-      navigate(user?.role === 'technician' ? '/technician' : '/customer');
-    } catch {
-      toast.error('Failed to end session properly');
-      navigate(user?.role === 'technician' ? '/technician' : '/customer');
     }
+
+    const relativeX = (e.clientX - rect.left - offsetX) / actualWidth;
+    const relativeY = (e.clientY - rect.top - offsetY) / actualHeight;
+
+    return {
+      x: Math.max(0, Math.min(1, relativeX)),
+      y: Math.max(0, Math.min(1, relativeY)),
+      valid: relativeX >= 0 && relativeX <= 1 && relativeY >= 0 && relativeY <= 1
+    };
   };
 
-  const handleVideoInteraction = (e: React.MouseEvent<HTMLVideoElement>, action: string) => {
-    if (user?.role !== 'technician' || !wsRef.current || !hasRemoteStream) return;
-    
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relativeX = (e.clientX - rect.left) / rect.width;
-    const relativeY = (e.clientY - rect.top) / rect.height;
+  // Mouse Interaction Handlers
+  const handleVideoInteraction = (e: MouseEvent<HTMLVideoElement>, action: string) => {
+    if (user?.role !== 'technician' || !wsRef.current || !hasRemoteStream || !isControlEnabled) return;
+    if (isCustomerControlPaused) {
+      toast('Remote control is temporarily paused by customer', { id: 'cust-paused' });
+      return;
+    }
+
+    const { x, y, valid } = getCoordinates(e);
+    if (!valid && action !== 'mouseup') return;
 
     wsRef.current.send(JSON.stringify({ 
       type: 'control', 
-      payload: { action, relativeX, relativeY } 
+      payload: { action, relativeX: x, relativeY: y } 
+    }));
+  };
+
+  const handleMouseMove = (e: MouseEvent<HTMLVideoElement>) => {
+    if (!isMouseDownRef.current || user?.role !== 'technician' || !isControlEnabled) return;
+    const now = Date.now();
+    if (now - lastMouseMoveTime.current < 40) return; // 25 FPS throttling for drag
+    lastMouseMoveTime.current = now;
+
+    const { x, y, valid } = getCoordinates(e);
+    if (!valid) return;
+
+    wsRef.current?.send(JSON.stringify({
+      type: 'control',
+      payload: { action: 'mousemove', relativeX: x, relativeY: y }
+    }));
+  };
+
+  const handleWheel = (e: WheelEvent<HTMLVideoElement>) => {
+    if (user?.role !== 'technician' || !wsRef.current || !hasRemoteStream || !isControlEnabled) return;
+    wsRef.current.send(JSON.stringify({
+      type: 'control',
+      payload: { action: 'scroll', deltaY: e.deltaY }
     }));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (user?.role !== 'technician' || !wsRef.current || !hasRemoteStream) return;
-    
-    // Don't send if typing in chat
-    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    if (user?.role !== 'technician' || !wsRef.current || !hasRemoteStream || !isControlEnabled) return;
+    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
 
     e.preventDefault();
     wsRef.current.send(JSON.stringify({
@@ -291,10 +414,113 @@ const SupportRoom = () => {
     }));
   };
 
-  const handleElevate = (e: React.FormEvent) => {
+  // Special Keys (Zoho Assist Toolbar)
+  const sendSpecialKey = (keyAction: 'cad' | 'win' | 'alttab') => {
+    if (!wsRef.current || !isControlEnabled) return;
+    if (keyAction === 'cad') {
+      wsRef.current.send(JSON.stringify({ type: 'control', payload: { action: 'cad' } }));
+      toast.success('Sent Ctrl+Alt+Del command');
+    } else if (keyAction === 'win') {
+      wsRef.current.send(JSON.stringify({ type: 'control', payload: { action: 'keydown', key: 'Meta' } }));
+      toast.success('Sent Windows Key command');
+    }
+  };
+
+  // Multi-Monitor Switch
+  const handleSelectScreen = (screenId: string) => {
+    setSelectedScreenId(screenId);
+    wsRef.current?.send(JSON.stringify({
+      type: 'select-display',
+      payload: { sourceId: screenId }
+    }));
+    toast.success('Switched remote display source');
+  };
+
+  // Screen Blanking / Privacy Curtain (Zoho Assist Feature)
+  const togglePrivacyCurtain = () => {
+    const nextState = !isPrivacyCurtainOn;
+    setIsPrivacyCurtainOn(nextState);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'privacy-curtain',
+        payload: { enabled: nextState }
+      }));
+      toast(nextState ? 'Remote privacy screen turned ON' : 'Remote privacy screen turned OFF', {
+        icon: nextState ? '🔒' : '🔓',
+      });
+    }
+  };
+
+  // File Transfer
+  const handleSendFile = async () => {
+    if (!selectedFile || !wsRef.current) return;
+    setIsTransferring(true);
+    setTransferProgress(10);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        setTransferProgress(60);
+
+        wsRef.current?.send(JSON.stringify({
+          type: 'file-transfer',
+          payload: {
+            name: selectedFile.name,
+            size: selectedFile.size,
+            buffer: base64Data
+          }
+        }));
+
+        setTransferredFiles(prev => [
+          {
+            id: String(Date.now()),
+            name: selectedFile.name,
+            size: selectedFile.size,
+            direction: 'sent',
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'sending'
+          },
+          ...prev
+        ]);
+
+        setTransferProgress(100);
+        setTimeout(() => {
+          setIsTransferring(false);
+          setTransferProgress(null);
+          setSelectedFile(null);
+          setShowFileModal(false);
+          toast.success(`Sent "${selectedFile.name}" to remote desktop`);
+        }, 600);
+      };
+      reader.readAsDataURL(selectedFile);
+    } catch {
+      setIsTransferring(false);
+      setTransferProgress(null);
+      toast.error('Failed to read file');
+    }
+  };
+
+  // Live Chat
+  const sendChatMessage = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !wsRef.current) return;
+    
+    wsRef.current.send(JSON.stringify({ type: 'chat', payload: newMessage }));
+    setMessages(prev => [...prev, { 
+      sender: user?.role || 'me', 
+      text: newMessage,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }]);
+    setNewMessage('');
+    scrollToBottom();
+  };
+
+  // Session Elevation
+  const handleElevate = (e: FormEvent) => {
     e.preventDefault();
     if (elevateMode === 'credentials' && (!adminUsername.trim() || !adminPassword.trim())) {
-      toast.error('Please enter administrator username and password');
+      toast.error('Please enter administrator credentials');
       return;
     }
     setIsElevating(true);
@@ -307,187 +533,521 @@ const SupportRoom = () => {
         sessionCode: sessionCode,
       }
     }));
-    toast.success('Elevation request sent! Relaunching remote client in Admin Mode...');
+    toast.success('Elevation command dispatched');
     setShowElevateModal(false);
     setIsElevating(false);
   };
 
+  // End Session
+  const confirmEndSession = async () => {
+    setIsEnding(true);
+    try {
+      if (user?.role === 'technician') {
+        await api.put(`/sessions/code/${sessionCode}/end`);
+        if (sessionNotes.trim()) {
+          await api.put(`/sessions/code/${sessionCode}/notes`, { notes: sessionNotes });
+        }
+        wsRef.current?.send(JSON.stringify({ type: 'system', message: 'Technician has ended the session.' }));
+      }
+      toast.success('Session ended successfully');
+      navigate(user?.role === 'technician' ? '/technician' : '/customer');
+    } catch {
+      navigate(user?.role === 'technician' ? '/technician' : '/customer');
+    } finally {
+      setIsEnding(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-gray-900 text-white overflow-hidden">
-      {/* Main Video Area */}
-      <div className="flex-1 flex flex-col relative">
-        <header className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+      {/* Zoho Assist Style Top Header & Toolbar */}
+      <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0 shadow-md z-30">
+        {/* Left: Branding & Session Info */}
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Monitor className="w-5 h-5 text-indigo-400" />
-            <h1 className="font-semibold text-sm">Session: <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">{sessionCode}</span></h1>
-            {!isConnected && <span className="flex items-center text-xs text-yellow-500 ml-2"><Loader2 className="w-3 h-3 animate-spin mr-1"/> Connecting...</span>}
+            <span className="font-bold text-sm tracking-tight hidden sm:inline text-white">RemoteAssist</span>
           </div>
-          
-          <div className="flex items-center gap-2">
-            {user?.role === 'technician' && (
-              isRemoteAdmin ? (
-                <div 
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/90 text-white rounded-md text-xs font-semibold shadow-sm"
-                  title="Remote client is running in Administrator mode. Windows UAC prompts and elevated apps are visible and controllable."
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
-                  <span>Admin Mode Active</span>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowElevateModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
-                  title="Elevate remote session to Administrator mode to see and control Windows UAC prompts"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>Elevate to Admin</span>
-                </button>
-              )
+
+          <div className="h-4 w-px bg-slate-700 hidden sm:block" />
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-400">Key:</span>
+            <span className="font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700 text-indigo-300 font-bold">
+              {sessionCode}
+            </span>
+            <div className="flex items-center gap-1.5 ml-1 text-slate-400 font-mono">
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>{formatDuration(sessionSeconds)}</span>
+            </div>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-semibold">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 font-medium">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Connecting...
+              </span>
             )}
-            {user?.role === 'customer' && (
-              <button 
-                onClick={isScreenSharing ? stopScreenShare : startScreenShare}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  isScreenSharing ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
-                }`}
+          </div>
+        </div>
+
+        {/* Center: Zoho Assist Remote Controls Toolbar (For Technician) */}
+        {user?.role === 'technician' && (
+          <div className="hidden lg:flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700 text-xs">
+            {/* Display Selector */}
+            {availableScreens.length > 1 && (
+              <select
+                value={selectedScreenId}
+                onChange={(e) => handleSelectScreen(e.target.value)}
+                className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none"
               >
-                {isScreenSharing ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
-              </button>
+                {availableScreens.map(scr => (
+                  <option key={scr.id} value={scr.id}>{scr.name}</option>
+                ))}
+              </select>
             )}
-            <button 
-              onClick={handleEndSession}
-              className="bg-red-600 hover:bg-red-700 p-1.5 rounded-md text-white transition-colors ml-2"
-              title="End Session"
+
+            {/* Screen Scale Mode */}
+            <button
+              onClick={() => setScreenFitMode(prev => prev === 'fit' ? 'original' : 'fit')}
+              className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                screenFitMode === 'fit' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-700'
+              }`}
+              title="Toggle Fit to Screen / Original 100%"
             >
-              <PhoneOff className="w-5 h-5" />
+              {screenFitMode === 'fit' ? 'Fit Window' : '100% Scale'}
+            </button>
+
+            {/* View Only vs Full Control */}
+            <button
+              onClick={() => setIsControlEnabled(!isControlEnabled)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors ${
+                isControlEnabled ? 'bg-slate-700 text-emerald-400' : 'bg-amber-600/80 text-white'
+              }`}
+              title={isControlEnabled ? "Control is Enabled" : "View Only Mode"}
+            >
+              {isControlEnabled ? <MousePointer className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{isControlEnabled ? 'Control On' : 'View Only'}</span>
+            </button>
+
+            {/* Special Keys */}
+            <button
+              onClick={() => sendSpecialKey('cad')}
+              className="px-2.5 py-1 rounded text-slate-300 hover:bg-slate-700 font-mono text-[11px] hover:text-white"
+              title="Send Ctrl+Alt+Del (Opens Security & Task Manager)"
+            >
+              Ctrl+Alt+Del
+            </button>
+
+            {/* File Transfer Quick Button */}
+            <button
+              onClick={() => setShowFileModal(true)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-300 hover:bg-slate-700 hover:text-white"
+              title="Send files to remote computer"
+            >
+              <FileUp className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Send File</span>
+            </button>
+
+            {/* Privacy Screen / Blank Remote Display */}
+            <button
+              onClick={togglePrivacyCurtain}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                isPrivacyCurtainOn ? 'bg-amber-600 text-white font-medium shadow-sm' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              title={isPrivacyCurtainOn ? "Privacy Screen is ACTIVE (Customer display is blanked)" : "Blank remote customer display for privacy"}
+            >
+              <EyeOff className="w-3.5 h-3.5 text-amber-300" />
+              <span>{isPrivacyCurtainOn ? 'Screen Blanked' : 'Blank Screen'}</span>
             </button>
           </div>
-        </header>
-        
+        )}
+
+        {/* Right: Actions, Elevation, End */}
+        <div className="flex items-center gap-2">
+          {user?.role === 'technician' && (
+            isRemoteAdmin ? (
+              <div 
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600/90 text-white rounded-md text-xs font-semibold shadow-sm"
+                title="Remote client is running with Full Administrator privileges. UAC prompts are visible."
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
+                <span className="hidden sm:inline">Admin Mode</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowElevateModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs font-semibold transition-all shadow-sm"
+                title="Elevate remote session to Administrator mode to control Windows UAC"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Elevate</span>
+              </button>
+            )
+          )}
+
+          {user?.role === 'customer' && (
+            <button 
+              onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                isScreenSharing ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
+            >
+              {isScreenSharing ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              <span>{isScreenSharing ? 'Stop Sharing' : 'Share Screen'}</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => setShowEndModal(true)}
+            className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-md text-white text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+            title="End Session"
+          >
+            <PhoneOff className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">End Session</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Body */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Remote Desktop Canvas Viewport */}
         <main 
-          className="flex-1 relative bg-black flex items-center justify-center p-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="flex-1 relative bg-slate-950 flex items-center justify-center overflow-auto focus:outline-none"
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
-          {/* Remote Video (What Technician sees, or Customer if Technician shares) */}
+          {/* Customer Control Paused Banner */}
+          {isCustomerControlPaused && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 bg-amber-600/90 backdrop-blur-md text-white text-xs font-semibold rounded-lg shadow-lg">
+              <AlertCircle className="w-4 h-4" />
+              <span>Customer has temporarily paused remote control. You can still view the screen.</span>
+            </div>
+          )}
+
+          {/* Remote Video Element */}
           <video 
             ref={remoteVideoRef} 
             autoPlay 
             playsInline
             muted={user?.role === 'customer'}
-            className="w-full h-full object-contain max-h-full cursor-crosshair"
+            className={`max-w-full max-h-full ${
+              screenFitMode === 'fit' ? 'object-contain w-full h-full' : 'object-none'
+            } ${isControlEnabled && !isCustomerControlPaused ? 'cursor-crosshair' : 'cursor-default'}`}
+            onMouseDown={(e) => {
+              isMouseDownRef.current = true;
+              handleVideoInteraction(e, 'mousedown');
+            }}
+            onMouseUp={(e) => {
+              isMouseDownRef.current = false;
+              handleVideoInteraction(e, 'mouseup');
+            }}
+            onMouseMove={handleMouseMove}
             onClick={(e) => handleVideoInteraction(e, 'click')}
-            onContextMenu={(e) => { e.preventDefault(); handleVideoInteraction(e, 'rightclick'); }}
+            onDoubleClick={(e) => handleVideoInteraction(e, 'doubleclick')}
+            onContextMenu={(e) => { 
+              e.preventDefault(); 
+              handleVideoInteraction(e, 'rightclick'); 
+            }}
+            onWheel={handleWheel}
           />
-          
-          {/* Local Video Overlay (Mini picture-in-picture) */}
-          <div className={`absolute bottom-4 right-4 w-48 aspect-video bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-700 shadow-xl ${isScreenSharing ? 'block' : 'hidden'}`}>
-            <video 
-              ref={localVideoRef} 
-              autoPlay 
-              playsInline 
-              muted 
-              className="w-full h-full object-cover"
-            />
+
+          {/* Mini local preview PiP */}
+          <div className={`absolute bottom-4 left-4 w-48 aspect-video bg-slate-800 rounded-lg overflow-hidden border-2 border-slate-700 shadow-xl z-10 ${isScreenSharing ? 'block' : 'hidden'}`}>
+            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
           </div>
 
-          {(!hasRemoteStream && !isScreenSharing) && (
-             <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 bg-black z-10">
-               <Monitor className="w-16 h-16 mb-4 opacity-50" />
-               <p>{user?.role === 'technician' ? 'Waiting for customer to share screen...' : 'Click "Share Screen" to begin'}</p>
-             </div>
+          {/* Empty state while waiting for screen */}
+          {!hasRemoteStream && !isScreenSharing && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 bg-slate-950 z-10 space-y-3">
+              <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center">
+                <Monitor className="w-8 h-8 text-indigo-500 animate-pulse" />
+              </div>
+              <p className="text-sm font-medium text-slate-400">
+                {user?.role === 'technician' ? 'Waiting for remote customer to connect and stream desktop...' : 'Click "Share Screen" or launch the portable client.'}
+              </p>
+              <div className="text-xs text-slate-600 font-mono">
+                WebRTC Peer-to-Peer Encrypted Stream
+              </div>
+            </div>
           )}
         </main>
-      </div>
 
-      {/* Sidebar (Chat & Tools) */}
-      <div className="w-full md:w-80 bg-gray-800 border-l border-gray-700 flex flex-col h-1/2 md:h-full shrink-0">
-        <div className="h-14 border-b border-gray-700 flex items-center px-4 shrink-0">
-          <MessageSquare className="w-5 h-5 mr-2 text-gray-400" />
-          <h2 className="font-semibold text-sm">Live Chat</h2>
-        </div>
-        
-        <div className="flex-1 p-4 overflow-y-auto space-y-4">
-          {messages.map((msg, idx) => {
-            const isMe = msg.sender === user?.role;
-            return (
-              <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                <span className="text-xs text-gray-500 mb-1">{msg.sender.charAt(0).toUpperCase() + msg.sender.slice(1)}</span>
-                <div className={`px-3 py-2 rounded-lg max-w-[85%] text-sm ${
-                  isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'
-                }`}>
-                  {msg.text}
-                </div>
-              </div>
-            );
-          })}
-          <div ref={chatEndRef} />
-        </div>
-
-        <div className="p-4 border-t border-gray-700 shrink-0">
-          <form onSubmit={sendChatMessage} className="flex gap-2">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
-            />
-            <button 
-              type="submit"
-              disabled={!newMessage.trim()}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white p-2 rounded-lg transition-colors"
+        {/* Zoho Assist Right Sidebar (Chat, Files, Notes) */}
+        <aside className="w-80 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 z-20">
+          {/* Tab Navigation */}
+          <div className="h-12 border-b border-slate-800 flex items-center px-2 bg-slate-900/80">
+            <button
+              onClick={() => setActiveSidebarTab('chat')}
+              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                activeSidebarTab === 'chat' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              <Send className="w-4 h-4" />
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Chat</span>
             </button>
-          </form>
-        </div>
-      </div>
 
-      {/* Zoho Assist-style Elevation Modal */}
-      {showElevateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-gray-100">
-            <div className="p-5 border-b border-gray-700 flex items-center justify-between bg-gradient-to-r from-gray-800 to-gray-850">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-base text-white">Elevate Session to Admin</h3>
-                  <p className="text-xs text-gray-400">Enable remote UAC interaction & admin actions</p>
-                </div>
-              </div>
+            <button
+              onClick={() => setActiveSidebarTab('files')}
+              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                activeSidebarTab === 'files' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>Files</span>
+            </button>
+
+            {user?.role === 'technician' && (
               <button
-                type="button"
-                onClick={() => setShowElevateModal(false)}
-                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-700/60 transition-colors"
+                onClick={() => setActiveSidebarTab('notes')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                  activeSidebarTab === 'notes' ? 'bg-slate-800 text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                <X className="w-5 h-5" />
+                <FileText className="w-3.5 h-3.5" />
+                <span>Notes</span>
+              </button>
+            )}
+          </div>
+
+          {/* Tab: Chat */}
+          {activeSidebarTab === 'chat' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 p-3 overflow-y-auto space-y-3">
+                {messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
+                    <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
+                    <span>No chat messages yet</span>
+                  </div>
+                ) : (
+                  messages.map((msg, idx) => {
+                    const isMe = msg.sender === user?.role;
+                    return (
+                      <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5">
+                          <span className="font-semibold capitalize">{msg.sender}</span>
+                          <span>•</span>
+                          <span>{msg.time}</span>
+                        </div>
+                        <div className={`px-3 py-2 rounded-xl max-w-[85%] text-xs leading-relaxed ${
+                          isMe 
+                            ? 'bg-indigo-600 text-white rounded-tr-none shadow-sm' 
+                            : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'
+                        }`}>
+                          {msg.text}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat Input */}
+              <div className="p-3 border-t border-slate-800 bg-slate-900">
+                <form onSubmit={sendChatMessage} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type message to client..."
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500"
+                  />
+                  <button 
+                    type="submit"
+                    disabled={!newMessage.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white p-2 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Files */}
+          {activeSidebarTab === 'files' && (
+            <div className="flex-1 flex flex-col p-3 overflow-hidden space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-semibold text-slate-300">File Transfer Log</span>
+                <button
+                  onClick={() => setShowFileModal(true)}
+                  className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-semibold"
+                >
+                  <FileUp className="w-3.5 h-3.5" /> Send File
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-2">
+                {transferredFiles.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
+                    <Folder className="w-8 h-8 mb-2 opacity-30" />
+                    <span>No files transferred in this session</span>
+                  </div>
+                ) : (
+                  transferredFiles.map(file => (
+                    <div key={file.id} className="p-2.5 bg-slate-800/80 rounded-lg border border-slate-700/80 text-xs space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-200 truncate max-w-[170px]">{file.name}</span>
+                        <span className="text-[10px] text-slate-400">{file.timestamp}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px] text-slate-400">
+                        <span>{(file.size / 1024).toFixed(1)} KB</span>
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Transferred
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Notes */}
+          {activeSidebarTab === 'notes' && (
+            <div className="flex-1 flex flex-col p-3 overflow-hidden space-y-3">
+              <div className="text-xs font-semibold text-slate-300">Technician Remarks & Audit Notes</div>
+              <textarea
+                value={sessionNotes}
+                onChange={(e) => setSessionNotes(e.target.value)}
+                placeholder="Enter problem diagnosis, steps taken, or follow-up notes for this support ticket..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none placeholder-slate-500"
+              />
+              <button
+                onClick={async () => {
+                  try {
+                    await api.put(`/sessions/code/${sessionCode}/notes`, { notes: sessionNotes });
+                    toast.success('Notes saved to session log');
+                  } catch {
+                    toast.error('Failed to save notes');
+                  }
+                }}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+              >
+                Save Notes
               </button>
             </div>
+          )}
+        </aside>
+      </div>
 
-            <form onSubmit={handleElevate} className="p-5 space-y-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200 flex items-start gap-2.5">
-                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <span>
-                  Windows isolates UAC prompts (like &quot;Run as administrator&quot;) on the Secure Desktop. Elevating this session enables UAC prompt visibility and administrative control for the technician.
-                </span>
+      {/* Send File Modal */}
+      <AnimatePresence>
+        {showFileModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-800 space-y-4"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2 font-bold text-white text-sm">
+                  <FileUp className="w-5 h-5 text-indigo-400" />
+                  <span>Transfer File to Remote Client</span>
+                </div>
+                <button onClick={() => setShowFileModal(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Elevation Method</label>
-                
-                <div 
-                  onClick={() => setElevateMode('prompt')}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                    elevateMode === 'prompt' 
-                      ? 'border-indigo-500 bg-indigo-500/10' 
-                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
-                  }`}
+              <div className="space-y-3">
+                <label className="block text-xs font-medium text-slate-300">
+                  Select Local File (Logs, Patches, Installers)
+                </label>
+                <input
+                  type="file"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
+                />
+
+                {selectedFile && (
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs text-slate-300">
+                    <div><strong>File:</strong> {selectedFile.name}</div>
+                    <div><strong>Size:</strong> {(selectedFile.size / 1024).toFixed(1)} KB</div>
+                  </div>
+                )}
+
+                {transferProgress !== null && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>Sending file...</span>
+                      <span>{transferProgress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                      <div 
+                        className="bg-indigo-600 h-full transition-all duration-300 rounded-full" 
+                        style={{ width: `${transferProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFileModal(false)}
+                  className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold"
                 >
-                  <div className="flex items-start gap-3">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedFile || isTransferring}
+                  onClick={handleSendFile}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-sm"
+                >
+                  {isTransferring ? 'Transferring...' : 'Send to Customer'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Zoho Assist Elevation Modal */}
+      <AnimatePresence>
+        {showElevateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-400 border border-amber-500/20">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Elevate Session</h3>
+                    <p className="text-xs text-slate-400">Gain Full Windows UAC & Administrative Control</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowElevateModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleElevate} className="space-y-4">
+                <div className="space-y-2">
+                  <label 
+                    onClick={() => setElevateMode('prompt')}
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      elevateMode === 'prompt' 
+                        ? 'border-indigo-500 bg-indigo-950/40' 
+                        : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                    }`}
+                  >
                     <input 
                       type="radio" 
                       name="elevateMode" 
@@ -496,27 +1056,21 @@ const SupportRoom = () => {
                       className="mt-1 text-indigo-600 focus:ring-indigo-500"
                     />
                     <div>
-                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
-                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                        <span>Prompt for Windows Native UAC (Recommended)</span>
-                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">Universal</span>
+                      <div className="text-xs font-bold text-white">Prompt Customer for UAC Consent</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Customer will see the native Windows "Yes" confirmation prompt to grant admin rights.
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Displays the standard Windows UAC dialog. Works with <b>Azure AD / Office 365, PIN, Windows Hello, and Domain accounts</b>.
-                      </p>
                     </div>
-                  </div>
-                </div>
+                  </label>
 
-                <div 
-                  onClick={() => setElevateMode('credentials')}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                    elevateMode === 'credentials' 
-                      ? 'border-indigo-500 bg-indigo-500/10' 
-                      : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
+                  <label 
+                    onClick={() => setElevateMode('credentials')}
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      elevateMode === 'credentials' 
+                        ? 'border-indigo-500 bg-indigo-950/40' 
+                        : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                    }`}
+                  >
                     <input 
                       type="radio" 
                       name="elevateMode" 
@@ -525,70 +1079,125 @@ const SupportRoom = () => {
                       className="mt-1 text-indigo-600 focus:ring-indigo-500"
                     />
                     <div>
-                      <div className="flex items-center gap-1.5 font-medium text-sm text-white">
-                        <KeyRound className="w-4 h-4 text-indigo-400" />
-                        <span>Silent IT Admin Credentials (Local / Domain)</span>
+                      <div className="text-xs font-bold text-white">Enter Administrator Credentials</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Seamlessly elevate without end-user consent using IT admin credentials.
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Relaunches silently using local admin (e.g. <code>.\Administrator</code>) or on-premise AD (<code>DOMAIN\Admin</code>). <i>Note: Azure AD accounts cannot use this mode.</i>
-                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {elevateMode === 'credentials' && (
+                  <div className="space-y-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                        Admin Username
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={adminUsername}
+                        onChange={(e) => setAdminUsername(e.target.value)}
+                        placeholder="e.g. Administrator or .\admin"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                        Admin Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
                     </div>
                   </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowElevateModal(false)}
+                    className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isElevating}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    {isElevating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
+                    <span>Confirm Elevation</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* End Session Confirmation & Wrap-Up Modal */}
+      <AnimatePresence>
+        {showEndModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-500/10 rounded-xl text-red-500">
+                  <PhoneOff className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">End Remote Support Session?</h3>
+                  <p className="text-xs text-slate-400">Duration: {formatDuration(sessionSeconds)}</p>
                 </div>
               </div>
 
-              {elevateMode === 'credentials' && (
-                <div className="p-3.5 bg-gray-900/60 border border-gray-700 rounded-lg space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">
-                      IT Admin Username (e.g. .\Administrator or DOMAIN\User)
-                    </label>
-                    <input
-                      type="text"
-                      required={elevateMode === 'credentials'}
-                      value={adminUsername}
-                      onChange={(e) => setAdminUsername(e.target.value)}
-                      placeholder=".\Administrator"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">
-                      IT Admin Password
-                    </label>
-                    <input
-                      type="password"
-                      required={elevateMode === 'credentials'}
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
+              {user?.role === 'technician' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Closing Ticket Remarks / Summary (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={sessionNotes}
+                    onChange={(e) => setSessionNotes(e.target.value)}
+                    placeholder="e.g. Cleared browser cache and reinstalled printer drivers. Issue resolved."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                  />
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowElevateModal(false)}
-                  className="px-3.5 py-1.5 rounded-md text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+                  onClick={() => setShowEndModal(false)}
+                  className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold"
                 >
-                  Cancel
+                  Continue Session
                 </button>
                 <button
-                  type="submit"
-                  disabled={isElevating}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all flex items-center gap-1.5 shadow-sm"
+                  type="button"
+                  disabled={isEnding}
+                  onClick={confirmEndSession}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-md flex items-center gap-1.5"
                 >
-                  {isElevating && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Elevate Session</span>
+                  {isEnding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneOff className="w-3.5 h-3.5" />}
+                  <span>Disconnect & Finish</span>
                 </button>
               </div>
-            </form>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 };
