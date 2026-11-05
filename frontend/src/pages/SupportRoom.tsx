@@ -534,6 +534,7 @@ const SupportRoom = () => {
       }
     }));
     toast.success('Elevation command dispatched');
+    setAdminPassword(''); // Securely erase credentials from browser memory
     setShowElevateModal(false);
     setIsElevating(false);
   };
@@ -1033,8 +1034,8 @@ const SupportRoom = () => {
                   </div>
                 </div>
                 <button 
-                  onClick={() => setShowElevateModal(false)}
-                  className="text-slate-400 hover:text-white transition-colors"
+                  onClick={() => { setShowElevateModal(false); setAdminPassword(''); }}
+                  className="text-slate-400 hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1126,7 +1127,7 @@ const SupportRoom = () => {
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setShowElevateModal(false)}
+                    onClick={() => { setShowElevateModal(false); setAdminPassword(''); }}
                     className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     Cancel
