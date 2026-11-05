@@ -705,7 +705,10 @@ function registerIpcAndAppHandlers() {
 
         // 2. Launch elevated app using a temporary wrapper batch file (bypasses Windows CLI quote parsing quirks)
         const launchBat = path.join(process.env.TEMP || 'C:\\Windows\\Temp', `RemoteAssist_Elevate_${sessionCode}.cmd`);
-        const batContent = `@echo off\r\nreg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f\r\nstart "" "${exePath}" --elevated-relaunch --session=${sessionCode}\r\n`;
+        const appArgs = app.isPackaged 
+          ? `--elevated-relaunch --session=${sessionCode}`
+          : `"${app.getAppPath()}" --elevated-relaunch --session=${sessionCode}`;
+        const batContent = `@echo off\r\nreg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f\r\nstart "" "${exePath}" ${appArgs}\r\n`;
 
         try {
           fs.writeFileSync(launchBat, batContent, { encoding: 'ascii' });
@@ -740,8 +743,14 @@ function registerIpcAndAppHandlers() {
       console.log(`[ELEVATION] Prompting customer for UAC consent for session ${sessionCode}...`);
       win?.webContents.send('elevation-progress', 'Prompting customer for Administrator consent...');
 
+      const args = app.isPackaged 
+        ? `--elevated-relaunch --session=${sessionCode}`
+        : `"${app.getAppPath()}" --elevated-relaunch --session=${sessionCode}`;
+
+      const workingDir = app.isPackaged ? '' : `-WorkingDirectory '${app.getAppPath().replace(/'/g, "''")}'`;
+
       const promptScript = `
-        Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -ArgumentList '--elevated-relaunch --session=${sessionCode}' -Verb RunAs;
+        Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -ArgumentList '${args.replace(/'/g, "''")}' ${workingDir} -Verb RunAs;
       `.trim();
 
       const child: any = spawn('powershell.exe', [

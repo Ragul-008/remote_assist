@@ -1044,9 +1044,9 @@ const SupportRoom = () => {
                 <div className="space-y-2">
                   <label 
                     onClick={() => setElevateMode('prompt')}
-                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                    className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
                       elevateMode === 'prompt' 
-                        ? 'border-indigo-500 bg-indigo-950/40' 
+                        ? 'border-blue-500 bg-blue-950/40 shadow-xs' 
                         : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
                     }`}
                   >
@@ -1055,21 +1055,24 @@ const SupportRoom = () => {
                       name="elevateMode" 
                       checked={elevateMode === 'prompt'} 
                       onChange={() => setElevateMode('prompt')}
-                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                      className="mt-1 text-blue-600 focus:ring-blue-500"
                     />
                     <div>
-                      <div className="text-xs font-bold text-white">Prompt Customer for UAC Consent</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Customer will see the native Windows "Yes" confirmation prompt to grant admin rights.
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span>Prompt Customer for UAC Consent</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 bg-emerald-500/20 text-emerald-400 rounded">Recommended</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                        Triggers standard Windows UAC prompt on the remote PC. The user clicks <strong>"Yes"</strong> to grant admin privileges. Works seamlessly with Windows PIN, Microsoft accounts, or corporate login.
                       </div>
                     </div>
                   </label>
 
                   <label 
                     onClick={() => setElevateMode('credentials')}
-                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                    className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
                       elevateMode === 'credentials' 
-                        ? 'border-indigo-500 bg-indigo-950/40' 
+                        ? 'border-blue-500 bg-blue-950/40 shadow-xs' 
                         : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
                     }`}
                   >
@@ -1078,12 +1081,12 @@ const SupportRoom = () => {
                       name="elevateMode" 
                       checked={elevateMode === 'credentials'} 
                       onChange={() => setElevateMode('credentials')}
-                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                      className="mt-1 text-blue-600 focus:ring-blue-500"
                     />
                     <div>
                       <div className="text-xs font-bold text-white">Enter Administrator Credentials</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Seamlessly elevate without end-user consent using IT admin credentials.
+                      <div className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                        Silently elevates using local machine credentials (e.g. <code className="text-blue-300">.\Administrator</code>). Requires local SAM password (does not work with Windows Hello PINs or Azure AD).
                       </div>
                     </div>
                   </label>
@@ -1101,7 +1104,7 @@ const SupportRoom = () => {
                         value={adminUsername}
                         onChange={(e) => setAdminUsername(e.target.value)}
                         placeholder="e.g. Administrator or .\admin"
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                     <div>
@@ -1114,7 +1117,7 @@ const SupportRoom = () => {
                         value={adminPassword}
                         onChange={(e) => setAdminPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -1124,17 +1127,17 @@ const SupportRoom = () => {
                   <button
                     type="button"
                     onClick={() => setShowElevateModal(false)}
-                    className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold"
+                    className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isElevating}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5"
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                   >
                     {isElevating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-                    <span>Confirm Elevation</span>
+                    <span>{isElevating ? 'Elevating...' : elevateMode === 'prompt' ? 'Request UAC Consent' : 'Elevate with Credentials'}</span>
                   </button>
                 </div>
               </form>
