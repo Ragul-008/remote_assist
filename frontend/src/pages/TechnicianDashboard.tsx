@@ -3,11 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { 
-  Play, Copy, Check, Users, Clock, Plus, Loader2, Link as LinkIcon, 
-  HardDrive, ArrowRight, Headphones, Search, Laptop, ShieldCheck, Share2,
-  CheckCircle2, AlertCircle
+  Play, Copy, Check, Users, Plus, Loader2, Link as LinkIcon, 
+  HardDrive, ArrowRight, Headphones, Search, Laptop, Share2,
+  CheckCircle2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 const TechnicianDashboard = () => {

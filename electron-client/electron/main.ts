@@ -664,30 +664,30 @@ function registerIpcAndAppHandlers() {
       win?.webContents.send('elevation-progress', 'Validating administrator credentials...');
 
       // Run schtasks directly to prevent PowerShell variable expansion of $ in passwords
-      const authChild = spawn('schtasks.exe', [
+      const authChild: any = spawn('schtasks.exe', [
         '/create',
         '/tn', 'RemoteAssistAuthTest',
         '/tr', 'whoami.exe',
         '/sc', 'once',
         '/st', '00:00',
         '/ru', targetUser,
-        '/rp', payload.password,
+        '/rp', payload.password || '',
         '/rl', 'HIGHEST',
         '/f'
       ], { windowsHide: true });
 
       let stderr = '';
       let stdout = '';
-      authChild.stdout?.on('data', (d) => { stdout += d.toString(); });
-      authChild.stderr?.on('data', (d) => { stderr += d.toString(); });
+      authChild.stdout?.on('data', (d: any) => { stdout += d.toString(); });
+      authChild.stderr?.on('data', (d: any) => { stderr += d.toString(); });
 
-      authChild.on('close', (code) => {
+      authChild.on('close', (code: number) => {
         const fullOutput = (stdout + ' ' + stderr).toLowerCase();
         if (code !== 0 || fullOutput.includes('error:') || fullOutput.includes('logon failure') || fullOutput.includes('access is denied')) {
           console.warn('[ELEVATION] Credential verification failed. Code:', code, 'Output:', fullOutput);
           try { execSync('schtasks /delete /tn "RemoteAssistAuthTest" /f', { stdio: 'ignore' }); } catch {}
 
-          if (fullOutput.includes('network address is invalid') || payload.username.toLowerCase().includes('azuread') || payload.username.includes('@')) {
+          if (fullOutput.includes('network address is invalid') || (payload.username && (payload.username.toLowerCase().includes('azuread') || payload.username.includes('@')))) {
             win?.webContents.send('elevation-failed', 'Windows Task Scheduler cannot authenticate Azure AD / Office 365 accounts with passwords. Please select "Prompt Customer for UAC Consent" above to elevate via Windows native UAC.');
           } else if (fullOutput.includes('access is denied')) {
             win?.webContents.send('elevation-failed', 'Standard user permissions block creating elevated tasks. Please select "Prompt Customer for UAC Consent" above.');
@@ -713,14 +713,14 @@ function registerIpcAndAppHandlers() {
           console.error('[ELEVATION] Failed to write launch script:', e);
         }
 
-        const runElevateChild = spawn('schtasks.exe', [
+        const runElevateChild: any = spawn('schtasks.exe', [
           '/create',
           '/tn', 'RemoteAssistElevateApp',
           '/tr', `"${launchBat}"`,
           '/sc', 'once',
           '/st', '00:00',
           '/ru', targetUser,
-          '/rp', payload.password,
+          '/rp', payload.password || '',
           '/rl', 'HIGHEST',
           '/f'
         ], { windowsHide: true });
@@ -744,14 +744,14 @@ function registerIpcAndAppHandlers() {
         Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -ArgumentList '--elevated-relaunch --session=${sessionCode}' -Verb RunAs;
       `.trim();
 
-      const child = spawn('powershell.exe', [
+      const child: any = spawn('powershell.exe', [
         '-NoProfile',
         '-WindowStyle', 'Hidden',
         '-Command',
         promptScript
       ]);
 
-      child.on('close', (code) => {
+      child.on('close', (code: number) => {
         if (code !== 0) {
           console.warn('[ELEVATION] Customer rejected UAC prompt or launch failed. Code:', code);
           win?.webContents.send('elevation-failed', 'Customer declined the administrator elevation prompt.');

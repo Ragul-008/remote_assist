@@ -5,9 +5,9 @@ import toast from 'react-hot-toast';
 import api from '../services/api';
 import { 
   Monitor, Video, VideoOff, MessageSquare, Send, PhoneOff, 
-  Loader2, ShieldAlert, KeyRound, ShieldCheck, X, Maximize, 
-  Minimize2, FileUp, Folder, ArrowRight, CheckCircle2, Clock, 
-  MousePointer, Eye, EyeOff, LayoutGrid, Terminal, Download, FileText, AlertCircle, RefreshCw
+  Loader2, ShieldAlert, ShieldCheck, X, 
+  FileUp, Folder, CheckCircle2, Clock, 
+  MousePointer, Eye, EyeOff, FileText, AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
