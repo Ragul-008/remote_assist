@@ -41,7 +41,7 @@ const Login = () => {
       login(token, userData);
       toast.success('Login successful!');
       
-      if (userData.role === 'technician') {
+      if (userData.role === 'admin' || userData.role === 'technician') {
         navigate('/technician');
       } else {
         navigate('/customer');
